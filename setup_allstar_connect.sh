@@ -121,11 +121,31 @@ find_rpt_files() {
 
 detect_node() {
   local candidates="" file section
+
+  if [[ -r /etc/asterisk/savenode.conf ]]; then
+    candidates="$(
+      sed -nE \
+        's/^[[:space:]]*NODE[[:space:]]*=[[:space:]]*"?([0-9]{4,7})"?[[:space:]]*([#;].*)?$/\1/p' \
+        /etc/asterisk/savenode.conf |
+      sort -u
+    )"
+
+    if [[ $(printf '%s\n' "$candidates" | sed '/^$/d' | wc -l) -eq 1 ]]; then
+      printf '%s' "$candidates"
+      return 0
+    fi
+  fi
+
+  candidates=""
   while IFS= read -r file; do
     [[ -r "$file" ]] || continue
     while IFS= read -r section; do
       candidates+="$section"$'\n'
-    done < <(sed -nE 's/^[[:space:]]*\[([0-9]{4,7})\][[:space:]]*(;.*)?$/\1/p' "$file")
+    done < <(
+      sed -nE \
+        's/^[[:space:]]*\[([0-9]{4,7})\][[:space:]]*(\([^)]*\))?[[:space:]]*(;.*)?$/\1/p' \
+        "$file"
+    )
   done < <(find_rpt_files)
 
   candidates="$(printf '%s' "$candidates" | sed '/^$/d' | sort -u)"
