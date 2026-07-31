@@ -1,0 +1,8 @@
+# AllStar Connect local configuration
+# Enter the local app_rpt node number when automatic detection cannot identify exactly one node.
+MYNODE=""
+
+# Optional web authentication. Disabled by default.
+ALLSTAR_CONNECT_AUTH_ENABLED=0
+ALLSTAR_CONNECT_ADMIN_USER="admin"
+ALLSTAR_CONNECT_ADMIN_PASSWORD_HASH=""

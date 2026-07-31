@@ -1,0 +1,10 @@
+config.ini
+data/favorites.txt
+/cache/
+/run/
+/logs/
+*.log
+*.bak
+*.tmp
+*~
+.DS_Store
