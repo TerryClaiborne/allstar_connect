@@ -190,17 +190,19 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
 
         <section class="ac-center-column">
             <section class="ac-card ac-connections-card">
-                <div class="ac-card-title-row">
+                <div class="ac-card-title-row ac-connections-title-row">
                     <div class="ac-title-with-count">
                         <h2>Current Connections</h2>
                         <strong class="ac-count" data-connections-count>0</strong>
                     </div>
-                    <div class="ac-direction-legend">
+                    <div class="ac-connections-node-center">
                         <?php if ($myNodeIsValid): ?>
                             <a class="ac-local-node-pill" href="https://stats.allstarlink.org/stats/<?= e($myNode) ?>" target="_blank" rel="noopener noreferrer" title="Open local node <?= e($myNode) ?> on AllStarLink Stats">Node <?= e($myNode) ?></a>
                         <?php else: ?>
                             <span class="ac-local-node-pill is-disabled">Node not configured</span>
                         <?php endif; ?>
+                    </div>
+                    <div class="ac-direction-legend">
                         <span class="is-incoming">↓ Incoming</span>
                         <span class="is-outgoing">↑ Outgoing</span>
                         <button
@@ -286,7 +288,7 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                     </div>
                 </div>
                 <div class="ac-downstream-footer">
-                    <span>Keyed nodes illuminate in the tree.</span>
+                    <span>Direct-node groups are color-coded for easier branch tracking.</span>
                     <span>Private nodes are shown in gold.</span>
                 </div>
             </section>

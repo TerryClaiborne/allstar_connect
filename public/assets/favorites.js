@@ -22,6 +22,8 @@
         title: document.getElementById('favorite-editor-title'),
         helper: document.getElementById('favorite-editor-helper'),
         status: document.getElementById('favorite-page-status'),
+        modal: document.getElementById('favorites-editor-modal'),
+        close: document.getElementById('favorite-editor-close'),
     };
 
     const state = {
@@ -87,6 +89,32 @@
         if (elements.helper) elements.helper.textContent = helper;
     }
 
+    function openEditor(options = {}) {
+        if (!elements.modal) return;
+        elements.modal.hidden = false;
+        elements.modal.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('ac-modal-open');
+
+        window.requestAnimationFrame(() => {
+            if (options.focusName) {
+                elements.name?.focus({ preventScroll: true });
+                elements.name?.select();
+            } else if (options.focusTarget) {
+                elements.target?.focus({ preventScroll: true });
+                elements.target?.select();
+            }
+        });
+    }
+
+    function closeEditor() {
+        if (elements.modal) {
+            elements.modal.hidden = true;
+            elements.modal.setAttribute('aria-hidden', 'true');
+        }
+        document.body.classList.remove('ac-modal-open');
+        clearEditor();
+    }
+
     function compareTargets(left, right) {
         const a = String(left || '');
         const b = String(right || '');
@@ -124,7 +152,14 @@
         if (elements.count) elements.count.textContent = String(state.items.length);
         if (!elements.body) return;
         if (!items.length) {
-            elements.body.innerHTML = `<tr><td colspan="5">${state.items.length ? 'No Favorites match the search.' : 'No Favorites saved yet.'}</td></tr>`;
+            const searchTarget = exactSearchTarget();
+            const echoCallsign = exactSearchEchoLinkCallsign();
+            const message = searchTarget
+                ? `Node ${escapeHtml(searchTarget)} is not saved. Click + Add Favorite to add it.`
+                : echoCallsign
+                    ? `EchoLink ${escapeHtml(echoCallsign)} is not saved. Click + Add Favorite to add it.`
+                    : (state.items.length ? 'No Favorites match the search.' : 'No Favorites saved yet.');
+            elements.body.innerHTML = `<tr><td colspan="5">${message}</td></tr>`;
             return;
         }
         elements.body.innerHTML = items.map((item) => `
@@ -154,13 +189,10 @@
         state.editorDirty = false;
         setEditorHeading('Edit Favorite', `${networkLabel(network)} ${elements.target.value} is already saved.`);
         setStatus('Change the details or leave them as shown, then update the Favorite.');
-        if (focusName) {
-            elements.name?.focus();
-            elements.name?.select();
-        }
+        openEditor({ focusName });
     }
 
-    function clearEditor(focusTarget = false) {
+    function clearEditor() {
         window.clearTimeout(state.lookupTimer);
         state.lookupController?.abort();
         state.lookupController = null;
@@ -174,7 +206,6 @@
         state.originalTarget = '';
         setEditorHeading('Add Favorite', 'Type or paste a node number in Search or Target. AllStarLink/EchoLink details will fill automatically.');
         setStatus(canWrite ? 'Ready' : 'View only - login to make changes.');
-        if (focusTarget) elements.target?.focus();
     }
 
     async function lookupIdentity(network, target) {
@@ -185,8 +216,14 @@
         const timeout = window.setTimeout(() => controller.abort(), 4500);
         try {
             const url = new URL(identityEndpoint, window.location.href);
-            url.searchParams.set('network', networkForTarget(network, target));
-            url.searchParams.set('target', cleanTarget(target));
+            const networkCode = String(network || '').toUpperCase() === 'ECHO'
+                ? 'ECHO'
+                : networkForTarget(network, target);
+            const lookupTarget = networkCode === 'ECHO'
+                ? String(target || '').trim().toUpperCase()
+                : cleanTarget(target);
+            url.searchParams.set('network', networkCode);
+            url.searchParams.set('target', lookupTarget);
             url.searchParams.set('_', String(Date.now()));
             const response = await fetch(url.toString(), {
                 cache: 'no-store',
@@ -230,7 +267,7 @@
         setEditorHeading('Add Favorite', `Looking up ${networkLabel(networkCode)} ${clean}…`);
         setStatus(`Looking up ${networkLabel(networkCode)} database information…`);
         try {
-            const identity = await lookupIdentity(networkCode, clean);
+            const identity = options.identity || await lookupIdentity(networkCode, clean);
             if (state.lookupKey !== key) return false;
             if (!state.editorDirty) {
                 const callsign = String(identity?.callsign || '').trim();
@@ -274,6 +311,15 @@
         return cleanTarget(raw);
     }
 
+    function exactSearchEchoLinkCallsign() {
+        const raw = String(elements.search?.value || '').trim().toUpperCase();
+        return (
+            raw.length <= 32
+            && /^[A-Z0-9*_.\/-]+$/.test(raw)
+            && /[A-Z*]/.test(raw)
+        ) ? raw : '';
+    }
+
     async function refresh() {
         if (!endpoint) return;
         try {
@@ -282,8 +328,6 @@
             if (!response.ok || !payload?.ok) throw new Error(payload?.message || 'Unable to load Favorites.');
             state.items = Array.isArray(payload.favorites) ? payload.favorites : [];
             render();
-            const searchTarget = exactSearchTarget();
-            if (searchTarget) schedulePrefill(networkForTarget('ASL', searchTarget), searchTarget, { delay: 40 });
         } catch (error) {
             setStatus(error.message || 'Unable to load Favorites.', true);
         }
@@ -309,8 +353,6 @@
 
     elements.search?.addEventListener('input', () => {
         render();
-        const target = exactSearchTarget();
-        if (target) schedulePrefill(networkForTarget('ASL', target), target);
     });
 
     for (const button of document.querySelectorAll('[data-sort]')) {
@@ -322,15 +364,72 @@
         });
     }
 
-    elements.add?.addEventListener('click', () => {
+    elements.add?.addEventListener('click', async () => {
         const target = exactSearchTarget();
+        const echoCallsign = exactSearchEchoLinkCallsign();
+
         if (target) {
-            prefillTarget(networkForTarget('ASL', target), target, { focusName: true });
+            clearEditor();
+            if (elements.search) elements.search.value = '';
+            render();
+            openEditor();
+            await prefillTarget(
+                networkForTarget('ASL', target),
+                target,
+                { focusName: true }
+            );
             return;
         }
-        clearEditor(true);
+
+        if (echoCallsign) {
+            clearEditor();
+            if (elements.search) elements.search.value = '';
+            render();
+            openEditor();
+
+            if (elements.network) elements.network.value = 'ECHO';
+            setEditorHeading('Add Favorite', `Looking up EchoLink ${echoCallsign}…`);
+            setStatus('Looking up EchoLink database information…');
+
+            try {
+                const identity = await lookupIdentity('ECHO', echoCallsign);
+                const mappedTarget = cleanTarget(identity?.target);
+
+                if (!/^3\d{6}$/.test(mappedTarget)) {
+                    throw new Error('That EchoLink callsign could not be resolved to a node number.');
+                }
+
+                await prefillTarget('ECHO', mappedTarget, {
+                    focusName: true,
+                    identity,
+                });
+            } catch (error) {
+                setEditorHeading(
+                    'Add Favorite',
+                    error?.message || 'EchoLink callsign lookup failed.'
+                );
+                setStatus(
+                    error?.message || 'EchoLink callsign lookup failed.',
+                    true
+                );
+            }
+            return;
+        }
+
+        clearEditor();
+        openEditor({ focusTarget: true });
     });
-    elements.clear?.addEventListener('click', () => clearEditor(true));
+
+    elements.clear?.addEventListener('click', closeEditor);
+    elements.close?.addEventListener('click', closeEditor);
+    elements.modal?.addEventListener('click', (event) => {
+        if (event.target === elements.modal) closeEditor();
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && elements.modal && !elements.modal.hidden) {
+            closeEditor();
+        }
+    });
 
     elements.body?.addEventListener('click', async (event) => {
         const row = event.target.closest('tr[data-target]');
@@ -391,9 +490,10 @@
             if (state.originalTarget && (state.originalTarget !== payload.target || state.originalNetwork !== payload.network)) {
                 await postFavorite({ action: 'delete', target: state.originalTarget, network: state.originalNetwork });
             }
-            const result = await postFavorite(payload);
-            setStatus(result.message || 'Favorite saved.');
-            editItem(result.favorite || payload);
+            await postFavorite(payload);
+            if (elements.search) elements.search.value = '';
+            render();
+            closeEditor();
         } catch (error) {
             setStatus(error.message || 'Unable to save Favorite.', true);
         }

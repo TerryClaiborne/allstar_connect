@@ -217,6 +217,39 @@
         return /^3\d{6}$/.test(cleanTarget) ? 'ECHO' : normalizeNetworkCode(network);
     }
 
+    function cleanEchoLinkEntry(value) {
+        return String(value || '')
+            .trim()
+            .toUpperCase()
+            .replace(/\s+/g, '')
+            .replace(/[^A-Z0-9*_.\/-]/g, '');
+    }
+
+    function mappedEchoLinkTarget(value) {
+        const entry = cleanEchoLinkEntry(value);
+        if (/^3\d{6}$/.test(entry) && entry !== '3000000') return entry;
+        if (/^\d{1,6}$/.test(entry) && Number(entry) > 0) {
+            return `3${entry.padStart(6, '0')}`;
+        }
+        return '';
+    }
+
+    function validEchoLinkIdentifier(value) {
+        const entry = cleanEchoLinkEntry(value);
+        return mappedEchoLinkTarget(entry) !== ''
+            || (
+                entry.length <= 32
+                && /^[A-Z0-9*_.\/-]+$/.test(entry)
+                && /[A-Z*]/.test(entry)
+            );
+    }
+
+    function cleanConnectEntry(value, network = state.selectedNetwork) {
+        return normalizeNetworkCode(network) === 'ECHO'
+            ? cleanEchoLinkEntry(value)
+            : String(value || '').replace(/\D/g, '');
+    }
+
     function networkDisplay(value) {
         return normalizeNetworkCode(value) === 'ECHO' ? 'EchoLink' : 'AllStarLink';
     }
@@ -305,6 +338,60 @@
         }
     }
 
+    async function resolveEchoLinkConnectTarget(value) {
+        const entry = cleanEchoLinkEntry(value);
+        const mapped = mappedEchoLinkTarget(entry);
+
+        if (mapped !== '') {
+            if (elements.connectTarget) elements.connectTarget.value = mapped;
+            applySelectedNetwork('ECHO', mapped, false);
+            scheduleManualFavoritePrefill(50);
+            return mapped;
+        }
+
+        if (!validEchoLinkIdentifier(entry)) {
+            throw new Error('Enter an EchoLink node number or callsign.');
+        }
+
+        setControlStatus(`Looking up EchoLink ${entry}…`);
+        const identity = await lookupTargetIdentity('ECHO', entry);
+        const resolved = String(identity?.target || '').replace(/\D/g, '');
+        const officialNode = String(identity?.official_node || '').replace(/\D/g, '');
+        const callsign = String(identity?.callsign || entry).trim().toUpperCase();
+
+        if (!/^3\d{6}$/.test(resolved) || resolved === '3000000' || !/^\d{1,6}$/.test(officialNode)) {
+            throw new Error('That EchoLink callsign could not be resolved to a node number.');
+        }
+
+        const resolvedEntry = {
+            node: officialNode,
+            callsign,
+            found: true,
+            checked_at: new Date().toISOString(),
+        };
+
+        state.echoLinkEntries[officialNode] = resolvedEntry;
+        const callsignKey = echoLinkCallsignKey(callsign);
+        if (callsignKey) {
+            state.echoLinkEntries[callsignKey] = resolvedEntry;
+        }
+
+        if (elements.connectTarget) elements.connectTarget.value = resolved;
+        applySelectedNetwork('ECHO', resolved, false);
+        scheduleManualFavoritePrefill(50);
+        return resolved;
+    }
+
+    function normalizeEchoLinkNumericInput() {
+        if (state.selectedNetwork !== 'ECHO' || !elements.connectTarget) return false;
+        const mapped = mappedEchoLinkTarget(elements.connectTarget.value);
+        if (mapped === '' || elements.connectTarget.value === mapped) return false;
+        elements.connectTarget.value = mapped;
+        syncConnectControls();
+        scheduleManualFavoritePrefill(50);
+        return true;
+    }
+
     async function prefillFavoriteEditor(network, target, item = null, options = {}) {
         const cleanTarget = String(target || '').replace(/\D/g, '');
         const networkCode = networkForTarget(network, cleanTarget);
@@ -387,7 +474,7 @@
             if (/^\d+$/.test(a) && /^\d+$/.test(b)) return Number(a) - Number(b);
             return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
         });
-        elements.favoritesList.innerHTML = sorted.slice(0, 8).map((item) => `
+        elements.favoritesList.innerHTML = sorted.map((item) => `
             <button type="button" class="ac-dashboard-favorite" data-load-favorite="${escapeHtml(favoriteKey(item.network, item.target))}">
                 <span class="ac-dashboard-favorite-star">★</span>
                 <strong>${escapeHtml(item.target)}</strong>
@@ -444,18 +531,23 @@
     }
 
     function applySelectedNetwork(network, targetOverride = null, prefill = true) {
-        const target = targetOverride === null
-            ? String(elements.connectTarget?.value || '').replace(/\D/g, '')
-            : String(targetOverride || '').replace(/\D/g, '');
-        state.selectedNetwork = networkForTarget(network, target);
+        const requestedNetwork = normalizeNetworkCode(network);
+        const source = targetOverride === null
+            ? String(elements.connectTarget?.value || '')
+            : String(targetOverride || '');
+        const target = cleanConnectEntry(source, requestedNetwork);
+
+        state.selectedNetwork = networkForTarget(requestedNetwork, target);
         for (const button of elements.networkTabs) {
             const active = normalizeNetworkCode(button.dataset.network) === state.selectedNetwork;
             button.classList.toggle('is-active', active);
             button.setAttribute('aria-pressed', active ? 'true' : 'false');
         }
         if (elements.connectTarget) {
+            elements.connectTarget.value = target;
+            elements.connectTarget.inputMode = state.selectedNetwork === 'ECHO' ? 'text' : 'numeric';
             elements.connectTarget.placeholder = state.selectedNetwork === 'ECHO'
-                ? 'Mapped EchoLink node (3xxxxxx)'
+                ? 'EchoLink node or callsign'
                 : 'Enter AllStar node number';
         }
         syncConnectControls();
@@ -474,38 +566,71 @@
     }
 
     function syncNetworkFromTarget() {
-        const target = String(elements.connectTarget?.value || '').replace(/\D/g, '');
-        if (/^3\d{6}$/.test(target) && state.selectedNetwork !== 'ECHO') {
-            applySelectedNetwork('ECHO');
+        const raw = String(elements.connectTarget?.value || '').trim();
+        const echoEntry = cleanEchoLinkEntry(raw);
+        const echoCallsign = (
+            echoEntry.length <= 32
+            && /^[A-Z0-9*_.\/-]+$/.test(echoEntry)
+            && /[A-Z*]/.test(echoEntry)
+        );
+
+        if (echoCallsign && state.selectedNetwork !== 'ECHO') {
+            applySelectedNetwork('ECHO', echoEntry, false);
             return true;
         }
+
+        if (/^3\d{6}$/.test(raw) && state.selectedNetwork !== 'ECHO') {
+            applySelectedNetwork('ECHO', raw, false);
+            return true;
+        }
+
         return false;
     }
 
     function syncConnectControls() {
-        const target = String(elements.connectTarget?.value || '').replace(/\D/g, '');
+        const target = cleanConnectEntry(elements.connectTarget?.value, state.selectedNetwork);
         const network = networkForTarget(state.selectedNetwork, target);
-        if (elements.connectTarget && elements.connectTarget.value !== target) elements.connectTarget.value = target;
+        if (elements.connectTarget && elements.connectTarget.value !== target) {
+            elements.connectTarget.value = target;
+        }
+
+        const valid = network === 'ECHO'
+            ? validEchoLinkIdentifier(target)
+            : /^\d{1,7}$/.test(target);
+        const favoriteTarget = network === 'ECHO'
+            ? mappedEchoLinkTarget(target)
+            : target;
+
         if (elements.connectButton) {
-            const valid = network === 'ECHO' ? /^3\d{6}$/.test(target) : /^\d{1,7}$/.test(target);
-            elements.connectButton.disabled = !canWrite || !linkEndpoint || !valid || state.pendingActions.has('connect');
+            elements.connectButton.disabled =
+                !canWrite
+                || !linkEndpoint
+                || !valid
+                || state.pendingActions.has('connect');
         }
         if (elements.connectFavoriteStar) {
-            const valid = network === 'ECHO' ? /^3\d{6}$/.test(target) : /^\d{1,7}$/.test(target);
             elements.connectFavoriteStar.disabled = !canWrite || !valid;
-            elements.connectFavoriteStar.textContent = favoriteFor(network, target) ? '★' : '☆';
+            elements.connectFavoriteStar.textContent =
+                favoriteTarget !== '' && favoriteFor(network, favoriteTarget) ? '★' : '☆';
         }
     }
 
     async function connectSelectedTarget() {
         if (!elements.connectButton || elements.connectButton.disabled) return;
-        const target = String(elements.connectTarget?.value || '').replace(/\D/g, '');
-        const network = networkForTarget(state.selectedNetwork, target);
+
+        const entry = cleanConnectEntry(elements.connectTarget?.value, state.selectedNetwork);
+        const network = networkForTarget(state.selectedNetwork, entry);
         const mode = String(elements.connectMode?.value || 'transceive');
+
         state.pendingActions.add('connect');
         syncConnectControls();
-        setControlStatus(`Connecting ${networkDisplay(network)} ${target}…`);
+
         try {
+            const target = network === 'ECHO'
+                ? await resolveEchoLinkConnectTarget(entry)
+                : entry;
+
+            setControlStatus(`Connecting ${networkDisplay(network)} ${target}…`);
             const result = await postLink({
                 action: 'connect',
                 network,
@@ -677,23 +802,61 @@
     }
 
     for (const button of elements.networkTabs) {
-        button.addEventListener('click', () => applySelectedNetwork(button.dataset.network));
+        button.addEventListener('click', () => {
+            const requestedNetwork = normalizeNetworkCode(button.dataset.network);
+
+            if (requestedNetwork === state.selectedNetwork) {
+                elements.connectTarget?.focus();
+                return;
+            }
+
+            window.clearTimeout(state.favoriteLookupTimer);
+            state.favoriteLookupController?.abort();
+            state.favoriteLookupController = null;
+
+            if (elements.connectTarget) {
+                elements.connectTarget.value = '';
+            }
+
+            applySelectedNetwork(requestedNetwork, '', false);
+            elements.connectTarget?.focus();
+        });
     }
     elements.connectTarget?.addEventListener('input', () => {
-        if (syncNetworkFromTarget()) return;
+        if (syncNetworkFromTarget()) {
+            scheduleManualFavoritePrefill();
+            return;
+        }
+
+        const cleaned = cleanConnectEntry(elements.connectTarget.value, state.selectedNetwork);
+        if (elements.connectTarget.value !== cleaned) elements.connectTarget.value = cleaned;
         syncConnectControls();
         scheduleManualFavoritePrefill();
     });
+    elements.connectTarget?.addEventListener('paste', () => {
+        window.setTimeout(normalizeEchoLinkNumericInput, 0);
+    });
+    elements.connectTarget?.addEventListener('blur', normalizeEchoLinkNumericInput);
     elements.connectTarget?.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') { event.preventDefault(); connectSelectedTarget(); }
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            connectSelectedTarget();
+        }
     });
     elements.connectMode?.addEventListener('change', syncConnectControls);
     elements.connectButton?.addEventListener('click', connectSelectedTarget);
-    elements.connectFavoriteStar?.addEventListener('click', () => {
-        const target = String(elements.connectTarget?.value || '').replace(/\D/g, '');
-        const network = networkForTarget(state.selectedNetwork, target);
-        if (!validFavoriteTarget(network, target)) return;
-        prefillFavoriteEditor(network, target, null, { open: true, focus: true });
+    elements.connectFavoriteStar?.addEventListener('click', async () => {
+        const entry = cleanConnectEntry(elements.connectTarget?.value, state.selectedNetwork);
+        const network = networkForTarget(state.selectedNetwork, entry);
+        try {
+            const target = network === 'ECHO'
+                ? await resolveEchoLinkConnectTarget(entry)
+                : entry;
+            if (!validFavoriteTarget(network, target)) return;
+            prefillFavoriteEditor(network, target, null, { open: true, focus: true });
+        } catch (error) {
+            setControlStatus(error?.message || 'EchoLink lookup failed.', true);
+        }
     });
     elements.favoritesList?.addEventListener('click', (event) => {
         const button = event.target.closest('[data-load-favorite]');
@@ -1669,7 +1832,7 @@
                 <button type="button" class="allstar-connect-activity-row${selected}" data-activity-id="${escapeHtml(eventKey)}">
                     <span class="allstar-connect-activity-type ${activityClass(event.type)}">${activityLabel(event.type)}</span>
                     <span class="allstar-connect-activity-main">
-                        <strong>${escapeHtml(event.node || identity)}</strong>
+                        <strong>${escapeHtml(event.node || event.callsign || identity)}</strong>
                         <span>${escapeHtml(identity)}${sourceLabel ? ` · ${escapeHtml(sourceLabel)}` : ''}${durationText}</span>
                     </span>
                     <time datetime="${escapeHtml(event.timestamp)}">${escapeHtml(formatActivityTimestamp(event.timestamp))}</time>

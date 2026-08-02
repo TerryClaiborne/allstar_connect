@@ -27,7 +27,10 @@ $csrfToken = AppCsrf::token();
 $repoUrl = 'https://github.com/TerryClaiborne/allstar_connect';
 $remoteVersionUrl = 'https://raw.githubusercontent.com/TerryClaiborne/allstar_connect/main/VERSION';
 $localVersion = is_readable($root . '/VERSION') ? trim((string) file_get_contents($root . '/VERSION')) : '0.0.0';
-$assetVersion = substr((string) @hash_file('sha256', __FILE__), 0, 12) ?: $localVersion;
+$appShellVersion = substr((string) @hash_file('sha256', $root . '/public/assets/app-shell.css'), 0, 12) ?: $localVersion;
+$cssVersion = substr((string) @hash_file('sha256', $root . '/public/assets/allstar-connect.css'), 0, 12) ?: $localVersion;
+$headerVersion = substr((string) @hash_file('sha256', $root . '/public/assets/header.js'), 0, 12) ?: $localVersion;
+$favoritesVersion = substr((string) @hash_file('sha256', $root . '/public/assets/favorites.js'), 0, 12) ?: $localVersion;
 ?>
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
@@ -45,8 +48,8 @@ $assetVersion = substr((string) @hash_file('sha256', __FILE__), 0, 12) ?: $local
             }
         }());
     </script>
-    <link rel="stylesheet" href="/allstar_connect/public/assets/app-shell.css?v=<?= e($assetVersion) ?>">
-    <link rel="stylesheet" href="/allstar_connect/public/assets/allstar-connect.css?v=<?= e($assetVersion) ?>">
+    <link rel="stylesheet" href="/allstar_connect/public/assets/app-shell.css?v=<?= e($appShellVersion) ?>">
+    <link rel="stylesheet" href="/allstar_connect/public/assets/allstar-connect.css?v=<?= e($cssVersion) ?>">
 </head>
 <body>
 <div class="allstar-connect-page ac-page ac-favorites-page"
@@ -100,10 +103,13 @@ $assetVersion = substr((string) @hash_file('sha256', __FILE__), 0, 12) ?: $local
                 <strong class="ac-count" id="favorites-count">0</strong>
             </div>
             <div class="ac-favorites-toolbar">
-                <label class="ac-favorites-search"><span>Search</span><input id="favorites-search" type="search" placeholder="Node, callsign, station, or description"></label>
+                <label class="ac-favorites-search">
+                    <span>Search or Add</span>
+                    <input id="favorites-search" type="search" placeholder="Search saved Favorites or enter a node to add">
+                </label>
                 <button type="button" class="ac-primary-button" id="favorites-add" <?= $canWrite ? '' : 'disabled' ?>>+ Add Favorite</button>
             </div>
-            <div class="ac-favorites-table-wrap">
+            <div class="ac-favorites-table-wrap ac-scroll">
                 <table class="ac-favorites-table">
                     <thead><tr>
                         <th><button type="button" class="ac-favorites-sort-button" data-sort="target" aria-sort="ascending" title="Sort by Target"><span>Target</span><span class="ac-sort-indicator" aria-hidden="true">▲</span></button></th>
@@ -117,23 +123,45 @@ $assetVersion = substr((string) @hash_file('sha256', __FILE__), 0, 12) ?: $local
             </div>
         </section>
 
-        <section class="ac-card ac-favorites-editor-page">
-            <div class="ac-card-title-row"><div><h2 id="favorite-editor-title">Add Favorite</h2><p id="favorite-editor-helper">Enter an AllStarLink or mapped EchoLink target.</p></div></div>
-            <form id="favorite-editor-form" class="ac-favorite-page-form">
-                <label>Network<select id="favorite-network" <?= $canWrite ? '' : 'disabled' ?>><option value="ASL">AllStarLink</option><option value="ECHO">EchoLink</option></select></label>
-                <label>Target<input id="favorite-target" inputmode="numeric" placeholder="Node number" <?= $canWrite ? '' : 'disabled' ?>></label>
-                <label>Station Name<input id="favorite-name" placeholder="Station name" <?= $canWrite ? '' : 'disabled' ?>></label>
-                <label>Description<textarea id="favorite-description" rows="5" placeholder="Description" <?= $canWrite ? '' : 'disabled' ?>></textarea></label>
-                <div class="ac-favorite-page-actions">
-                    <button type="submit" class="ac-primary-button" <?= $canWrite ? '' : 'disabled' ?>>Save Favorite</button>
-                    <button type="button" class="ac-secondary-button" id="favorite-editor-clear">Clear</button>
+    </main>
+
+    <div class="ac-favorite-modal-backdrop" id="favorites-editor-modal" hidden aria-hidden="true">
+        <section class="ac-favorite-modal-card" role="dialog" aria-modal="true" aria-labelledby="favorite-editor-title">
+            <button type="button" id="favorite-editor-close" class="ac-favorite-modal-close" aria-label="Close Favorite window">×</button>
+            <h2 id="favorite-editor-title">Add Favorite</h2>
+            <p id="favorite-editor-helper" class="ac-favorite-modal-help">Enter an AllStarLink or mapped EchoLink target. Station details will fill automatically.</p>
+
+            <form id="favorite-editor-form" class="ac-favorite-page-form ac-favorite-page-modal-form">
+                <div class="ac-favorite-modal-summary">
+                    <label>Network
+                        <select id="favorite-network" <?= $canWrite ? '' : 'disabled' ?>>
+                            <option value="ASL">AllStarLink</option>
+                            <option value="ECHO">EchoLink</option>
+                        </select>
+                    </label>
+                    <label>Target
+                        <input id="favorite-target" inputmode="numeric" placeholder="Node number" <?= $canWrite ? '' : 'disabled' ?>>
+                    </label>
                 </div>
-                <div class="ac-control-status" id="favorite-page-status" role="status" aria-live="polite"><?= $canWrite ? 'Ready' : 'View only - login to make changes.' ?></div>
+
+                <div class="ac-favorite-dialog">
+                    <label>Station Name
+                        <input id="favorite-name" placeholder="Station name" <?= $canWrite ? '' : 'disabled' ?>>
+                    </label>
+                    <label>Description
+                        <textarea id="favorite-description" rows="4" placeholder="Description" <?= $canWrite ? '' : 'disabled' ?>></textarea>
+                    </label>
+                    <div class="ac-favorite-dialog-actions">
+                        <button type="button" class="ac-secondary-button" id="favorite-editor-clear">Cancel</button>
+                        <button type="submit" class="ac-primary-button" <?= $canWrite ? '' : 'disabled' ?>>Save Favorite</button>
+                    </div>
+                    <div class="ac-control-status" id="favorite-page-status" role="status" aria-live="polite"><?= $canWrite ? 'Ready' : 'View only - login to make changes.' ?></div>
+                </div>
             </form>
         </section>
-    </main>
+    </div>
 </div>
-<script src="/allstar_connect/public/assets/header.js?v=<?= e($assetVersion) ?>" defer></script>
-<script src="/allstar_connect/public/assets/favorites.js?v=<?= e($assetVersion) ?>" defer></script>
+<script src="/allstar_connect/public/assets/header.js?v=<?= e($headerVersion) ?>" defer></script>
+<script src="/allstar_connect/public/assets/favorites.js?v=<?= e($favoritesVersion) ?>" defer></script>
 </body>
 </html>

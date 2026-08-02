@@ -588,6 +588,7 @@ final class Monitor
         $connections = [];
         $modes = [];
         $keyed = [];
+        $aggregateKeyed = null;
 
         foreach ($xstatLines as $line) {
             if (preg_match('/Conn:\s+(.*)/', $line, $match) === 1) {
@@ -614,18 +615,37 @@ final class Monitor
             }
         }
 
+        $aggregateNode = count($connections) === 1
+            ? (string) array_key_first($connections)
+            : '';
+
         foreach ($sawStatLines as $line) {
             if (preg_match('/Conn:\s+(.*)/', $line, $match) !== 1) {
                 continue;
             }
             $parts = preg_split('/\s+/', trim($match[1])) ?: [];
             $node = trim((string) ($parts[0] ?? ''));
+
+            if ($aggregateNode !== ''
+                && !ctype_digit($aggregateNode)
+                && in_array($node, ['0', '1'], true)) {
+                $aggregateKeyed = $node === '1';
+                continue;
+            }
+
             if ($node !== '') {
                 $keyed[$node] = [
                     'active' => (($parts[1] ?? '0') === '1'),
                     'last' => (string) ($parts[2] ?? '-1'),
                 ];
             }
+        }
+
+        if ($aggregateKeyed !== null && $aggregateNode !== '') {
+            $keyed[$aggregateNode] = [
+                'active' => $aggregateKeyed,
+                'last' => '-1',
+            ];
         }
 
         $links = [];

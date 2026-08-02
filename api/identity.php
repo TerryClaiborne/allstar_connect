@@ -38,8 +38,9 @@ function echolink_description(string $callsign): string
 
 $network = strtoupper(trim((string) ($_GET['network'] ?? 'ASL')));
 $network = in_array($network, ['ECHO', 'ECHOLINK', 'E/L'], true) ? 'ECHO' : 'ASL';
-$target = preg_replace('/\D+/', '', (string) ($_GET['target'] ?? '')) ?? '';
-if (preg_match('/^3\d{6}$/', $target) === 1) {
+$rawTarget = strtoupper(trim((string) ($_GET['target'] ?? '')));
+$target = preg_replace('/\D+/', '', $rawTarget) ?? '';
+if (preg_match('/^3\d{6}$/', $rawTarget) === 1) {
     $network = 'ECHO';
 }
 
@@ -69,13 +70,47 @@ if ($network === 'ASL') {
     ]);
 }
 
-if (preg_match('/^3\d{6}$/', $target) !== 1) {
-    identity_response(['ok' => false, 'message' => 'Enter the mapped EchoLink node as 3 plus six digits.'], 422);
+$echoIdentifier = '';
+$echoNode = '';
+
+if (preg_match('/^3\d{6}$/', $rawTarget) === 1 || preg_match('/^\d{1,6}$/', $rawTarget) === 1) {
+    $echoNode = NodeIdentity::echoLinkNodeNumber($rawTarget);
+    if ($echoNode === '' || $echoNode === '0') {
+        identity_response(['ok' => false, 'message' => 'Enter a valid EchoLink node number.'], 422);
+    }
+    $echoIdentifier = $echoNode;
+} elseif (
+    strlen($rawTarget) <= 32
+    && preg_match('/^[A-Z0-9*_.\/-]+$/', $rawTarget) === 1
+    && preg_match('/[A-Z*]/', $rawTarget) === 1
+) {
+    $echoIdentifier = $rawTarget;
+} else {
+    identity_response([
+        'ok' => false,
+        'message' => 'Enter an EchoLink node number or callsign.',
+    ], 422);
 }
 
-$echoNode = NodeIdentity::echoLinkNodeNumber($target, true);
-$result = (new EchoLink())->snapshot([], [$echoNode]);
-$entry = is_array($result['entries'][$echoNode] ?? null) ? $result['entries'][$echoNode] : [];
+$result = (new EchoLink())->snapshot([], [$echoIdentifier]);
+$entryKey = $echoNode !== '' ? $echoNode : 'call:' . $echoIdentifier;
+$entry = is_array($result['entries'][$entryKey] ?? null)
+    ? $result['entries'][$entryKey]
+    : [];
+
+$resolvedNode = NodeIdentity::echoLinkNodeNumber((string) ($entry['node'] ?? ''));
+if ($resolvedNode === '' || $resolvedNode === '0') {
+    $resolvedNode = $echoNode;
+}
+
+if ($resolvedNode === '' || $resolvedNode === '0') {
+    identity_response([
+        'ok' => false,
+        'message' => 'That EchoLink callsign could not be resolved to a node number.',
+    ], 404);
+}
+
+$target = '3' . str_pad($resolvedNode, 6, '0', STR_PAD_LEFT);
 $callsign = strtoupper(trim((string) ($entry['callsign'] ?? '')));
 $qrzCallsign = NodeIdentity::qrzCallsign($callsign);
 
@@ -84,6 +119,7 @@ identity_response([
     'identity' => [
         'network' => 'ECHO',
         'target' => $target,
+        'official_node' => $resolvedNode,
         'found' => $callsign !== '',
         'callsign' => $callsign,
         'description' => echolink_description($callsign),
