@@ -1258,8 +1258,8 @@
         if (!callsign) {
             return {
                 ...item,
-                node: '',
-                echolink_node: '',
+                node: reportedNode,
+                echolink_node: reportedNode,
                 identity_pending: true,
                 identity_verified: false,
             };
