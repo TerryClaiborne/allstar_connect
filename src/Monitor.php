@@ -15,8 +15,8 @@ final class Monitor
     private const LOCK_FILE = '/run/local.lock';
     private const STATE_FILE = '/run/state.json';
     private const ACTIVITY_LOG_FILE = '/var/log/allstar-connect/activity.log';
-    private const ACTIVITY_PREVIEW_LIMIT = 50;
-    private const ACTIVITY_LOG_RETAIN_LINES = 50;
+    private const ACTIVITY_PREVIEW_LIMIT = 200;
+    private const ACTIVITY_LOG_RETAIN_LINES = 200;
 
     public function __construct(private Config $config)
     {

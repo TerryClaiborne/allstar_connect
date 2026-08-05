@@ -243,6 +243,14 @@ html[data-theme="light"] .ac-card-divider { background: #c7d5e2; }
 .ac-favorites-section { display: grid; grid-template-rows: auto auto auto; min-height: 0; padding: 13px 14px 14px; }
 .ac-subhead { justify-content: space-between; }
 .ac-subhead h3 { font-size: 15px; }
+.ac-favorites-section > .ac-subhead {
+    justify-content: flex-start;
+    padding-left: 4px;
+}
+.ac-favorites-section > .ac-subhead h3 {
+    width: auto;
+    text-align: left;
+}
 .ac-favorites-list { min-height: 0; max-height: 250px; margin-top: 7px; overflow-y: auto; overflow-x: hidden; }
 .ac-empty-inline { display: grid; gap: 6px; padding: 14px 0; }
 .ac-empty-inline strong { color: var(--ac-text); }
@@ -250,12 +258,24 @@ html[data-theme="light"] .ac-card-divider { background: #c7d5e2; }
 .ac-view-all { display: block; width: 100%; padding: 9px 0 0; }
 
 /* Current Connections */
-.ac-connections-card { display: grid; grid-template-rows: auto 34px auto 34px; min-height: 300px; }
+.ac-connections-card {
+    container-name: connections-card;
+    container-type: inline-size;
+    display: grid;
+    grid-template-rows: auto 34px auto 34px;
+    min-height: 300px;
+}
 .ac-direction-legend { gap: 12px; color: var(--ac-muted); font-size: 10px; font-weight: 820; text-transform: uppercase; }
 .ac-connections-title-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
+}
+.ac-system-cluster {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
 }
 .ac-connections-node-center {
     display: flex;
@@ -264,6 +284,142 @@ html[data-theme="light"] .ac-card-divider { background: #c7d5e2; }
 }
 .ac-connections-title-row .ac-direction-legend {
     justify-content: flex-end;
+}
+.ac-system-pills {
+    display: none;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+}
+.ac-system-pill {
+    display: inline-grid;
+    grid-template-columns: auto auto;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    min-height: 23px;
+    padding: 0 5px;
+    background: #081524;
+    border: 1px solid #456987;
+    border-radius: 999px;
+    box-shadow:
+        inset 0 2px 5px rgba(0, 0, 0, .62),
+        inset 0 -1px 0 rgba(118, 170, 211, .14);
+    font-family: "Segoe UI", Arial, sans-serif;
+    line-height: 1;
+    text-shadow: none;
+    white-space: nowrap;
+}
+.ac-system-pill > span {
+    color: #7fa9c9;
+    font-size: 9px;
+    font-weight: 400;
+    letter-spacing: .01em;
+    text-transform: uppercase;
+}
+.ac-system-pill > strong {
+    color: #f3c969;
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0;
+    font-variant-numeric: tabular-nums;
+}
+html[data-theme="light"] .ac-system-pill {
+    background: #e5eef5;
+    border-color: #96aec2;
+    box-shadow:
+        inset 0 2px 4px rgba(47, 75, 98, .17),
+        inset 0 -1px 0 rgba(255, 255, 255, .85);
+}
+html[data-theme="light"] .ac-system-pill > span { color: #4f708b; }
+html[data-theme="light"] .ac-system-pill > strong { color: #805700; }
+
+/*
+ * Show the six readouts only when the Current Connections card itself has
+ * enough room and the device has a desktop-style pointer. This keeps them
+ * off phones even when a mobile browser requests a wide/desktop viewport.
+ */
+@media (hover: hover) and (pointer: fine) {
+    @container connections-card (min-width: 800px) {
+        .ac-connections-title-row {
+            position: relative;
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 10px;
+            min-height: 49px;
+            padding: 10px 14px;
+            white-space: nowrap;
+        }
+        .ac-connections-title-row > .ac-title-with-count {
+            position: relative;
+            z-index: 2;
+            flex: 0 0 auto;
+            gap: 9px;
+        }
+        .ac-connections-title-row > .ac-title-with-count h2 {
+            font-size: 17px;
+            font-weight: 790;
+            letter-spacing: normal;
+        }
+        .ac-connections-title-row > .ac-title-with-count .ac-count {
+            min-width: 24px;
+            height: 21px;
+            padding: 0 6px;
+            font-size: 11px;
+            font-weight: 400;
+        }
+        .ac-system-cluster {
+            position: absolute;
+            z-index: 1;
+            top: 50%;
+            left: calc(50% + 9px);
+            display: flex;
+            gap: 3px;
+            transform: translate(-50%, -50%);
+        }
+        .ac-system-pills {
+            display: flex;
+            flex: 0 0 auto;
+            gap: 3px;
+        }
+        .ac-connections-node-center {
+            flex: 0 0 auto;
+        }
+        .ac-connections-title-row .ac-local-node-pill {
+            min-height: 23px;
+            padding: 0 7px;
+            font-size: 9px;
+            font-weight: 600;
+        }
+        .ac-connections-title-row .ac-direction-legend {
+            position: relative;
+            z-index: 2;
+            flex: 0 0 auto;
+            gap: 7px;
+            margin-left: auto;
+            font-size: 8px;
+            font-weight: 650;
+        }
+        .ac-connections-title-row .ac-panel-expand {
+            gap: 5px;
+            min-height: 27px;
+            padding: 0 10px;
+            font-size: 0.67rem;
+            font-weight: 850;
+        }
+        .ac-connections-title-row .ac-panel-expand > span {
+            font-size: 0.92rem;
+        }
+    }
+}
+
+/* Hard mobile/touch safeguard: never show the six desktop readouts. */
+@media (max-width: 1180px), (hover: none), (pointer: coarse) {
+    .ac-system-pills { display: none !important; }
+    .ac-system-cluster {
+        position: static !important;
+        transform: none !important;
+    }
 }
 .ac-audio-toggle { min-height: 28px; padding: 0 10px; color: #dfffe6; background: rgba(38,145,75,.20); border: 1px solid rgba(82,215,124,.55); border-radius: 999px; font-size: 9px; font-weight: 800; text-transform: none; }
 .ac-audio-toggle.is-off { color: #d8e0eb; background: #111d30; border-color: #405573; }
@@ -423,12 +579,40 @@ html[data-theme="light"] .ac-detail-list div { border-bottom-color: #cbd8e4; }
 html[data-theme="light"] .ac-detail-description { color: #3d5c75; background: #f2f7fb; border-color: #c4d3e0; }
 .ac-detail-actions { gap: 9px; padding: 0 14px 13px; }
 .ac-detail-actions a,
-.ac-favorite-detail { flex: 1; min-height: 38px; display: inline-flex; align-items: center; justify-content: center; color: #fff; background: linear-gradient(180deg,#6f35cb,#5224a4); border: 1px solid #7a46d5; border-radius: 6px; font-weight: 740; }
+.ac-favorite-detail,
+.ac-detail-load { flex: 1 1 0; min-width: 0; min-height: 38px; display: inline-flex; align-items: center; justify-content: center; padding: 0 9px; color: #fff; background: linear-gradient(180deg,#6f35cb,#5224a4); border: 1px solid #7a46d5; border-radius: 6px; font-weight: 740; white-space: nowrap; }
 html[data-theme="light"] .ac-detail-actions a { background: linear-gradient(180deg,#2c88d7,#176db9); border-color: #1f76bd; }
+.ac-detail-load {
+    flex: 0 0 auto;
+    min-width: 54px;
+    color: #dff2ff;
+    background: linear-gradient(180deg, #15304b, #0d2238);
+    border-color: #46789f;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+.ac-detail-load:hover,
+.ac-detail-load:focus-visible {
+    color: #ffffff;
+    background: linear-gradient(180deg, #1b3f61, #102c47);
+    border-color: #6aa4cf;
+    outline: none;
+}
+html[data-theme="light"] .ac-detail-load {
+    color: #0f4f7d;
+    background: linear-gradient(180deg, #f4f9fd, #dceaf5);
+    border-color: #78a5c6;
+}
+html[data-theme="light"] .ac-detail-load:hover,
+html[data-theme="light"] .ac-detail-load:focus-visible {
+    color: #0b4168;
+    background: linear-gradient(180deg, #ffffff, #d2e6f4);
+    border-color: #4d8bb8;
+}
 .ac-favorite-detail { color: #ffe7a2; background: #121a29; border-color: #9b7343; }
 html[data-theme="light"] .ac-favorite-detail { color: #6e4a00; background: #fff8e7; border-color: #bc9452; }
 .ac-detail-actions .is-disabled,
-.ac-favorite-detail:disabled { opacity: .55; pointer-events: none; }
+.ac-favorite-detail:disabled,
+.ac-detail-load:disabled { opacity: .55; box-shadow: none; pointer-events: none; }
 .ac-favorite-editor { display: grid; grid-template-rows: auto auto; }
 .ac-editor-title-row { min-height: 52px; }
 .ac-editor-close { color: var(--ac-muted); background: transparent; border: 0; font-size: 23px; }
@@ -1487,19 +1671,6 @@ html[data-theme="light"] .ac-control-status { color: #2f4e68; }
     .ac-activity-card { min-height: 360px; }
 }
 
-/* Hide desktop expanded-window controls in the cellphone layout. */
-@media (max-width: 820px) {
-    #allstar-connect-downstream-expand,
-    #allstar-connect-activity-expand {
-        display: none !important;
-    }
-
-    .ac-downstream-card .ac-card-title-row,
-    .ac-activity-card .ac-card-title-row {
-        grid-template-columns: minmax(0, 1fr);
-    }
-}
-
 /* Desktop expand controls for live panels */
 .ac-panel-expand {
     display: inline-flex;
@@ -1636,4 +1807,404 @@ html[data-theme="light"] .ac-sort-indicator { color: #6f3aa7; }
 }
 .ac-favorite-page-modal-form .ac-control-status {
     margin-top: 0;
+}
+
+/* Fixed sortable dashboard Favorites header. */
+.ac-dashboard-favorites-head {
+    display: grid;
+    grid-template-columns: 18px 55px minmax(0, 1fr) 68px;
+    gap: 6px;
+    align-items: center;
+    margin-top: 7px;
+    padding: 0 4px 5px;
+    border-bottom: 1px solid rgba(59,82,116,.72);
+}
+.ac-dashboard-favorites-head-spacer {
+    display: block;
+}
+.ac-dashboard-favorites-sort {
+    min-width: 0;
+    display: inline-flex;
+    gap: 3px;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 2px 0;
+    color: var(--ac-muted);
+    background: transparent;
+    border: 0;
+    font-size: 9px;
+    font-weight: 850;
+    line-height: 1.2;
+    text-align: left;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+.ac-dashboard-favorites-sort:hover,
+.ac-dashboard-favorites-sort:focus-visible,
+.ac-dashboard-favorites-sort.is-active {
+    color: var(--ac-text);
+}
+.ac-dashboard-favorites-sort:focus-visible {
+    outline: 1px solid rgba(92,169,255,.55);
+    outline-offset: 2px;
+}
+.ac-dashboard-favorites-sort:last-child {
+    justify-content: flex-end;
+    text-align: right;
+}
+.ac-dashboard-favorites-sort-indicator {
+    color: var(--ac-soft);
+    font-size: 8px;
+}
+.ac-dashboard-favorites-sort.is-active .ac-dashboard-favorites-sort-indicator {
+    color: #75b5ff;
+}
+html[data-theme="light"] .ac-dashboard-favorites-head {
+    border-bottom-color: #c7d5e2;
+}
+html[data-theme="light"] .ac-dashboard-favorites-sort.is-active .ac-dashboard-favorites-sort-indicator {
+    color: #0d6fbd;
+}
+
+@media (min-width: 761px) {
+    .ac-favorites-section {
+        grid-template-rows: auto auto minmax(0,1fr) auto;
+    }
+    .ac-favorites-list {
+        margin-top: 0;
+    }
+    .ac-dashboard-favorite {
+        grid-template-columns: 18px 55px minmax(0,1fr) 68px;
+    }
+    .ac-dashboard-favorite small {
+        text-align: right;
+    }
+}
+
+@media (max-width: 760px) {
+    .ac-dashboard-favorites-head {
+        display: none;
+    }
+}
+
+/* Mobile bounded Current Connections and Downstream panels. */
+@media (max-width: 820px) {
+    /*
+     * The desktop table heading is hidden on mobile, so Current Connections
+     * needs three grid tracks rather than the desktop four-track structure.
+     * About four mobile rows remain visible; additional rows scroll.
+     */
+    .ac-connections-card {
+        min-height: 0;
+        grid-template-rows: auto minmax(0, 320px) auto;
+    }
+
+    .allstar-connect-connection-list {
+        min-height: 0;
+        height: auto;
+        max-height: 320px;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    /*
+     * Explicitly place the mobile connection cells. Without fixed grid rows,
+     * the action strip can occupy the main row and leave only the far-left
+     * direction arrow as a dependable selection target.
+     */
+    .allstar-connect-connection-row {
+        grid-template-rows: auto auto;
+    }
+
+    .allstar-connect-connection-row .ac-connection-dir {
+        grid-column: 1;
+        grid-row: 1 / 3;
+        align-self: stretch;
+        display: grid;
+        place-items: center;
+    }
+
+    .allstar-connect-connection-row .ac-connection-node {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .allstar-connect-connection-row .ac-connection-mode {
+        grid-column: 3;
+        grid-row: 1;
+        justify-self: end;
+    }
+
+    .allstar-connect-connection-row .ac-row-actions {
+        grid-column: 2 / 4;
+        grid-row: 2;
+    }
+
+    /*
+     * Keep the normal Downstream dashboard preview bounded. The expanded
+     * desktop window remains unaffected.
+     */
+    .ac-downstream-card {
+        min-height: 0;
+        grid-template-rows: auto auto auto minmax(0, 240px) auto;
+    }
+
+    .allstar-connect-downstream-list {
+        min-height: 0;
+        height: auto;
+        max-height: 240px;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+    }
+}
+
+/* Fixed dashboard Downstream root and compact mobile header. */
+
+/*
+ * The normal dashboard displays one selected direct branch. Keep that direct
+ * root stationary while only its children scroll beneath it. The desktop
+ * expanded window remains the complete independently scrolling tree.
+ */
+#allstar-connect-downstream {
+    min-height: 0;
+    overflow: hidden !important;
+}
+
+#allstar-connect-downstream > .ac-ds-group {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 0;
+    height: 100%;
+    margin-bottom: 0;
+}
+
+#allstar-connect-downstream > .ac-ds-group > .ac-ds-children {
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    -webkit-overflow-scrolling: touch;
+}
+
+/*
+ * Preserve the complete product name on a cellphone. The blue account-circle
+ * icon is decorative; Login/Logout and the light/dark switch remain visible.
+ */
+@media (max-width: 820px) {
+    .ac-header {
+        gap: 8px;
+    }
+
+    .ac-brand {
+        gap: 6px;
+    }
+
+    .ac-brand-name {
+        overflow: visible;
+        font-size: 18px;
+        text-overflow: clip;
+    }
+
+    .ac-header-tools {
+        gap: 6px;
+    }
+
+    .ac-user-icon {
+        display: none !important;
+    }
+
+    .ac-auth {
+        gap: 0;
+    }
+
+    #allstar-connect-downstream {
+        height: 240px;
+        max-height: 240px;
+    }
+}
+
+@media (max-width: 390px) {
+    .ac-brand-logo {
+        width: 36px;
+        height: 36px;
+        flex-basis: 36px;
+    }
+
+    .ac-brand-name {
+        font-size: 17px;
+    }
+
+    .ac-auth-button {
+        padding-inline: 9px;
+    }
+}
+
+/* Cellphone-only Downstream sheet; desktop floating windows are unchanged. */
+.ac-mobile-downstream-open,
+.ac-mobile-downstream-sheet {
+    display: none;
+}
+
+.ac-mobile-downstream-sheet[hidden] {
+    display: none !important;
+}
+
+@media (max-width: 820px) {
+    body.ac-mobile-downstream-sheet-open {
+        overflow: hidden;
+        overscroll-behavior: none;
+    }
+
+    .ac-mobile-downstream-open {
+        display: inline-flex;
+        width: 100%;
+        min-height: 38px;
+        align-items: center;
+        justify-content: center;
+        padding: 0 12px;
+        color: #ffffff;
+        background: rgba(105, 64, 190, .32);
+        border: 1px solid rgba(164, 122, 232, .82);
+        border-radius: 7px;
+        font: inherit;
+        font-size: 11px;
+        font-weight: 850;
+        cursor: pointer;
+    }
+
+    html[data-theme="light"] .ac-mobile-downstream-open {
+        color: #4a196a;
+        background: #f4e8fb;
+        border-color: #ad6cc5;
+    }
+
+    .ac-mobile-downstream-sheet {
+        position: fixed;
+        z-index: 10000;
+        inset: 0;
+        display: grid;
+        grid-template-rows: auto auto auto minmax(0, 1fr);
+        min-width: 0;
+        min-height: 0;
+        width: 100%;
+        height: 100%;
+        padding:
+            max(8px, env(safe-area-inset-top))
+            max(8px, env(safe-area-inset-right))
+            max(8px, env(safe-area-inset-bottom))
+            max(8px, env(safe-area-inset-left));
+        overflow: hidden;
+        color: var(--ac-text);
+        background: var(--ac-bg);
+        box-sizing: border-box;
+    }
+
+    .ac-mobile-downstream-sheet-header {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 7px 8px 9px;
+        border-bottom: 1px solid var(--ac-border);
+    }
+
+    .ac-mobile-downstream-sheet-header > div {
+        display: grid;
+        min-width: 0;
+        gap: 2px;
+    }
+
+    .ac-mobile-downstream-sheet-header strong {
+        font-size: 18px;
+        line-height: 1.15;
+    }
+
+    .ac-mobile-downstream-sheet-header span {
+        color: var(--ac-muted);
+        font-size: 11px;
+    }
+
+    .ac-mobile-downstream-close {
+        flex: 0 0 42px;
+        width: 42px;
+        min-width: 42px;
+        height: 42px;
+        padding: 0;
+        color: var(--ac-text);
+        background: transparent;
+        border: 1px solid var(--ac-border);
+        border-radius: 7px;
+        font-size: 28px;
+        line-height: 1;
+        cursor: pointer;
+    }
+
+    .ac-mobile-downstream-sheet-controls {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(110px, .72fr);
+        gap: 7px;
+        padding: 8px 8px 6px;
+    }
+
+    .ac-mobile-downstream-sheet-controls .ac-compact-field {
+        grid-template-columns: auto minmax(0, 1fr);
+        min-width: 0;
+    }
+
+    .ac-mobile-downstream-sheet-controls select,
+    .ac-mobile-downstream-sheet-controls input {
+        width: 100%;
+        min-width: 0;
+        min-height: 36px;
+    }
+
+    .ac-mobile-downstream-sheet-filters {
+        display: flex;
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+        gap: 5px;
+        min-width: 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: 0 8px 7px;
+        overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .ac-mobile-downstream-sheet-filters .allstar-connect-downstream-filter {
+        flex: 0 0 auto;
+    }
+
+    .ac-mobile-downstream-sheet-list {
+        display: block;
+        min-width: 0;
+        min-height: 0;
+        width: auto;
+        height: auto;
+        max-height: none;
+        margin: 0 8px 8px;
+        padding: 8px !important;
+        overflow: hidden !important;
+    }
+
+    .ac-mobile-downstream-sheet-list > .ac-ds-group {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        min-height: 0;
+        height: 100%;
+        margin-bottom: 0;
+    }
+
+    .ac-mobile-downstream-sheet-list
+    > .ac-ds-group
+    > .ac-ds-children {
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable;
+        -webkit-overflow-scrolling: touch;
+    }
 }

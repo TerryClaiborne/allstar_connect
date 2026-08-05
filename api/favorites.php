@@ -134,6 +134,12 @@ if ($action === 'save') {
     if ($network === 'ASL' && preg_match('/^[0-9]{1,7}$/', $target) !== 1) {
         respond_favorites(['ok' => false, 'message' => 'Enter a valid AllStar node number.'], 422);
     }
+    if ($network === 'ASL' && preg_match('/^1[0-9]{3}$/', $target) === 1) {
+        respond_favorites([
+            'ok' => false,
+            'message' => 'Private AllStar nodes from 1000 through 1999 cannot be saved as AllStarLink Favorites.',
+        ], 422);
+    }
     if ($network === 'ECHO' && preg_match('/^3\d{6}$/', $target) !== 1) {
         respond_favorites(['ok' => false, 'message' => 'EchoLink Favorites must use the mapped 3xxxxxx node number.'], 422);
     }

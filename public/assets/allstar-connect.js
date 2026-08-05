@@ -16,8 +16,11 @@
     const csrfToken = String(page.dataset.csrfToken || '').trim();
     const canWrite = String(page.dataset.canWrite || '') === '1';
     const mobileActivityMedia = window.matchMedia('(max-width: 760px)');
+    const mobileDownstreamMedia = window.matchMedia('(max-width: 820px)');
     const desktopFloatingMedia = window.matchMedia('(min-width: 761px)');
     const MOBILE_ACTIVITY_LIMIT = 8;
+    let dashboardFavoritesSortKey = 'target';
+    let dashboardFavoritesSortDirection = 'asc';
     if (!localEndpoint) {
         return;
     }
@@ -40,6 +43,13 @@
         downstreamNote: document.getElementById('allstar-connect-downstream-note'),
         downstreamBranch: document.getElementById('allstar-connect-downstream-branch'),
         downstreamSearch: document.getElementById('allstar-connect-downstream-search'),
+        downstreamMobile: document.getElementById('allstar-connect-downstream-mobile'),
+        downstreamMobileSheet: document.getElementById('allstar-connect-downstream-mobile-sheet'),
+        downstreamMobileOpen: document.getElementById('allstar-connect-downstream-mobile-open'),
+        downstreamMobileClose: document.getElementById('allstar-connect-downstream-mobile-close'),
+        downstreamMobileBranch: document.getElementById('allstar-connect-downstream-mobile-branch'),
+        downstreamMobileSearch: document.getElementById('allstar-connect-downstream-mobile-search'),
+        downstreamMobileCount: document.getElementById('allstar-connect-downstream-mobile-count'),
         downstreamFilters: Array.from(document.querySelectorAll('[data-downstream-filter]')),
         downstreamFilterCounts: {
             all: Array.from(document.querySelectorAll('[data-downstream-filter-count="all"]')),
@@ -68,6 +78,7 @@
         detailFavoriteState: document.getElementById('allstar-connect-detail-favorite-state'),
         detailLinks: document.getElementById('allstar-connect-detail-links'),
         detailQrz: document.getElementById('allstar-connect-detail-qrz'),
+        detailLoad: document.getElementById('allstar-connect-detail-load'),
         detailFavorite: document.getElementById('allstar-connect-detail-favorite'),
         activity: document.getElementById('allstar-connect-activity'),
         activityExpanded: document.getElementById('allstar-connect-activity-expanded'),
@@ -86,6 +97,7 @@
         connectButton: document.getElementById('connect-button'),
         connectFavoriteStar: document.getElementById('connect-favorite-star'),
         favoritesList: document.getElementById('allstar-connect-favorites'),
+        favoriteSortButtons: Array.from(document.querySelectorAll('[data-dashboard-favorite-sort]')),
         favoriteModal: document.getElementById('allstar-connect-favorite-modal'),
         favoriteTitle: document.getElementById('allstar-connect-favorite-title'),
         favoriteSave: document.getElementById('allstar-connect-favorite-save'),
@@ -133,6 +145,8 @@
         connectionActionPointerActive: false,
         favoriteLookupTimer: 0,
         favoriteLookupController: null,
+        loadIdentityCache: new Map(),
+        loadIdentityRequests: new Map(),
         favoriteEditorKey: '',
         favoriteEditorDirty: false,
     };
@@ -255,19 +269,158 @@
     }
 
     function favoriteTargetForItem(item) {
-        if (!item) return '';
+        if (!item || Boolean(item.is_private)) return '';
+
         if (String(item.kind || '') === 'echo') {
-            const official = String(item.echolink_node || '').replace(/\D/g, '');
-            if (item.identity_verified && /^\d{1,6}$/.test(official)) {
-                return `3${official.padStart(6, '0')}`;
-            }
-            return '';
+            /*
+             * A known numeric EchoLink node is saveable even when its
+             * callsign lookup has not completed. Verified identity still
+             * takes priority, but it is not required for Favorite eligibility.
+             */
+            const official = echoLinkNodeNumber(
+                item.echolink_node
+                || item.reported_node
+                || item.node
+            );
+
+            return official !== '' && official !== '0'
+                ? `3${official.padStart(6, '0')}`
+                : '';
         }
+
         return String(item.node || '').replace(/\D/g, '');
     }
 
     function favoriteNetworkForItem(item) {
         return String(item?.kind || '') === 'echo' ? 'ECHO' : 'ASL';
+    }
+
+    function connectionUsesTarget(network, target) {
+        const networkCode = normalizeNetworkCode(network);
+        const cleanTarget = String(target || '').replace(/\D/g, '');
+        if (!cleanTarget) return false;
+
+        return state.connections.some((connection) => {
+            const kind = String(connection?.kind || '');
+            if (networkCode === 'ASL') {
+                return kind === 'asl'
+                    && String(connection.node || '').replace(/\D/g, '') === cleanTarget;
+            }
+
+            if (kind !== 'echo' || !Boolean(connection.identity_verified)) {
+                return false;
+            }
+            const officialNode = echoLinkNodeNumber(connection.echolink_node || connection.node);
+            const connectionTarget = officialNode ? `3${officialNode.padStart(6, '0')}` : '';
+            return connectionTarget === cleanTarget;
+        });
+    }
+
+    function connectTargetCandidateForItem(item) {
+        if (!item || state.selectedType === 'current' || Boolean(item.is_private)) {
+            return null;
+        }
+
+        const kind = String(item.kind || '');
+        if (kind === 'asl') {
+            const target = String(item.node || '').replace(/\D/g, '');
+            if (
+                !/^\d{1,7}$/.test(target)
+                || /^1\d{3}$/.test(target)
+                || target === String(state.localNode || '')
+                || connectionUsesTarget('ASL', target)
+            ) {
+                return null;
+            }
+            return { network: 'ASL', target };
+        }
+
+        if (kind === 'echo' && Boolean(item.identity_verified)) {
+            const officialNode = echoLinkNodeNumber(item.echolink_node || item.node);
+            const target = officialNode ? `3${officialNode.padStart(6, '0')}` : '';
+            return /^3\d{6}$/.test(target)
+                && target !== '3000000'
+                && !connectionUsesTarget('ECHO', target)
+                ? { network: 'ECHO', target }
+                : null;
+        }
+
+        return null;
+    }
+
+    function connectTargetForItem(item) {
+        const candidate = connectTargetCandidateForItem(item);
+        if (!candidate) return null;
+        if (candidate.network === 'ASL' && state.loadIdentityCache.get(candidate.target) !== true) {
+            return null;
+        }
+        return candidate;
+    }
+
+    async function verifyAllStarLoadTarget(target) {
+        const node = String(target || '').replace(/\D/g, '');
+        if (!/^\d{1,7}$/.test(node) || /^1\d{3}$/.test(node) || !identityEndpoint) {
+            return false;
+        }
+        if (state.loadIdentityCache.has(node)) {
+            return state.loadIdentityCache.get(node) === true;
+        }
+        if (state.loadIdentityRequests.has(node)) {
+            return state.loadIdentityRequests.get(node);
+        }
+
+        const request = (async () => {
+            const controller = new AbortController();
+            const timeout = window.setTimeout(() => controller.abort(), 4000);
+            try {
+                const url = new URL(identityEndpoint, window.location.href);
+                url.searchParams.set('network', 'ASL');
+                url.searchParams.set('target', node);
+                url.searchParams.set('_', String(Date.now()));
+                const response = await fetch(url.toString(), {
+                    cache: 'no-store',
+                    credentials: 'same-origin',
+                    signal: controller.signal,
+                });
+                const payload = await response.json().catch(() => ({}));
+                const identity = payload?.identity && typeof payload.identity === 'object'
+                    ? payload.identity
+                    : null;
+                const valid = Boolean(
+                    response.ok
+                    && payload?.ok
+                    && identity?.found === true
+                    && normalizeNetworkCode(identity.network) === 'ASL'
+                    && String(identity.target || '').replace(/\D/g, '') === node
+                );
+                state.loadIdentityCache.set(node, valid);
+                return valid;
+            } catch (error) {
+                state.loadIdentityCache.set(node, false);
+                return false;
+            } finally {
+                window.clearTimeout(timeout);
+                state.loadIdentityRequests.delete(node);
+            }
+        })();
+
+        state.loadIdentityRequests.set(node, request);
+        return request;
+    }
+
+    function refreshLoadEligibility(item) {
+        const candidate = connectTargetCandidateForItem(item);
+        if (!candidate || candidate.network !== 'ASL' || state.loadIdentityCache.has(candidate.target)) {
+            return;
+        }
+
+        const selectedKey = state.selectedKey;
+        const selectedType = state.selectedType;
+        verifyAllStarLoadTarget(candidate.target).then(() => {
+            if (state.selectedKey === selectedKey && state.selectedType === selectedType) {
+                renderDetails(selectedItem());
+            }
+        });
     }
 
     function favoriteKey(network, target) {
@@ -422,12 +575,32 @@
         if (elements.favoriteSave) elements.favoriteSave.textContent = 'Save Favorite';
 
         const itemName = String(item?.callsign || '').trim();
-        const itemDescription = [item?.description, item?.location]
+        const rawItemDescription = [item?.description, item?.location]
             .map((value) => String(value || '').trim())
             .filter((value, index, values) => value !== '' && values.indexOf(value) === index)
             .join(' — ');
+
+        let itemDescription = rawItemDescription;
+
+        if (networkCode === 'ECHO' && itemName === '') {
+            const echoNode = echoLinkNodeNumber(
+                item?.echolink_node
+                || item?.reported_node
+                || item?.node
+                || cleanTarget
+            );
+
+            itemDescription = echoNode !== ''
+                ? `EchoLink node ${echoNode}`
+                : '';
+        }
+
         if (!state.favoriteEditorDirty) {
-            if (elements.favoriteName) elements.favoriteName.value = itemName || cleanTarget;
+            /*
+             * Unknown identity stays blank for manual entry. Never use the
+             * numeric target as the Callsign / Station Name.
+             */
+            if (elements.favoriteName) elements.favoriteName.value = itemName;
             if (elements.favoriteDescription) elements.favoriteDescription.value = itemDescription;
         }
 
@@ -438,7 +611,7 @@
             if (!state.favoriteEditorDirty) {
                 const identityName = String(identity?.callsign || '').trim();
                 const description = identityDescription(identity);
-                if (elements.favoriteName) elements.favoriteName.value = identityName || itemName || cleanTarget;
+                if (elements.favoriteName) elements.favoriteName.value = identityName || itemName;
                 if (elements.favoriteDescription) elements.favoriteDescription.value = description || itemDescription;
             }
             setFavoriteHelper(identity?.found
@@ -462,18 +635,113 @@
         }, delay);
     }
 
+    function dashboardFavoriteSortValue(item, key) {
+        if (key === 'station') {
+            return String(item.name || item.description || networkDisplay(item.network));
+        }
+        if (key === 'network') {
+            return networkDisplay(item.network);
+        }
+        return String(item.target || '');
+    }
+
+    function compareDashboardFavorites(left, right) {
+        const compareText = (leftValue, rightValue) => String(leftValue || '').localeCompare(
+            String(rightValue || ''),
+            undefined,
+            {
+                numeric: true,
+                sensitivity: 'base',
+            }
+        );
+
+        const compareNode = (leftValue, rightValue) => {
+            const leftNode = String(leftValue || '');
+            const rightNode = String(rightValue || '');
+
+            if (/^\d+$/.test(leftNode) && /^\d+$/.test(rightNode)) {
+                return Number(leftNode) - Number(rightNode);
+            }
+
+            return compareText(leftNode, rightNode);
+        };
+
+        const primaryKey = dashboardFavoritesSortKey;
+        const leftPrimary = dashboardFavoriteSortValue(left, primaryKey);
+        const rightPrimary = dashboardFavoriteSortValue(right, primaryKey);
+
+        let result = primaryKey === 'target'
+            ? compareNode(leftPrimary, rightPrimary)
+            : compareText(leftPrimary, rightPrimary);
+
+        if (result !== 0) {
+            return dashboardFavoritesSortDirection === 'desc' ? -result : result;
+        }
+
+        /*
+         * Default order:
+         *   1. Node number ascending
+         *   2. Station ascending
+         *
+         * Station remains the ascending secondary tie-breaker whenever
+         * another primary column is selected.
+         */
+        if (primaryKey !== 'station') {
+            result = compareText(
+                dashboardFavoriteSortValue(left, 'station'),
+                dashboardFavoriteSortValue(right, 'station')
+            );
+            if (result !== 0) return result;
+        }
+
+        if (primaryKey !== 'target') {
+            result = compareNode(left.target, right.target);
+            if (result !== 0) return result;
+        }
+
+        if (primaryKey !== 'network') {
+            result = compareText(
+                dashboardFavoriteSortValue(left, 'network'),
+                dashboardFavoriteSortValue(right, 'network')
+            );
+        }
+
+        return result;
+    }
+
+    function updateDashboardFavoriteSortButtons() {
+        for (const button of elements.favoriteSortButtons) {
+            const key = String(button.dataset.dashboardFavoriteSort || '');
+            const active = key === dashboardFavoritesSortKey;
+            const direction = active ? dashboardFavoritesSortDirection : 'none';
+            const indicator = button.querySelector('.ac-dashboard-favorites-sort-indicator');
+
+            button.setAttribute(
+                'aria-sort',
+                direction === 'asc' ? 'ascending' : (direction === 'desc' ? 'descending' : 'none')
+            );
+            button.classList.toggle('is-active', active);
+
+            if (indicator) {
+                indicator.textContent = active
+                    ? (dashboardFavoritesSortDirection === 'asc' ? '▲' : '▼')
+                    : '↕';
+            }
+        }
+    }
+
     function renderDashboardFavorites() {
         if (!elements.favoritesList) return;
+
+        updateDashboardFavoriteSortButtons();
+
         if (!state.favorites.length) {
             elements.favoritesList.innerHTML = '<div class="ac-empty-inline"><strong>No Favorites saved yet</strong><span>Use the star beside a live connection to add or edit one.</span></div>';
             return;
         }
-        const sorted = [...state.favorites].sort((left, right) => {
-            const a = String(left.target || '');
-            const b = String(right.target || '');
-            if (/^\d+$/.test(a) && /^\d+$/.test(b)) return Number(a) - Number(b);
-            return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
-        });
+
+        const sorted = [...state.favorites].sort(compareDashboardFavorites);
+
         elements.favoritesList.innerHTML = sorted.map((item) => `
             <button type="button" class="ac-dashboard-favorite" data-load-favorite="${escapeHtml(favoriteKey(item.network, item.target))}">
                 <span class="ac-dashboard-favorite-star">★</span>
@@ -562,7 +830,30 @@
         applySelectedNetwork(networkCode, cleanTarget, false);
         syncConnectControls();
         prefillFavoriteEditor(networkCode, cleanTarget, item, { open: false, focus: Boolean(options.focus) });
-        if (options.focusTarget !== false) elements.connectTarget?.focus();
+        if (options.focusTarget !== false && elements.connectTarget) {
+            if (mobileDownstreamMedia.matches) {
+                const targetInput = elements.connectTarget;
+                const connectSection = targetInput.closest('.ac-connect-section');
+
+                /*
+                 * A tapped Dashboard Favorite keeps focus until its click
+                 * finishes. Defer the mobile scroll until after that focus
+                 * settles, then focus the Target Node field without letting
+                 * Android scroll back to the Favorite row.
+                 */
+                window.setTimeout(() => {
+                    (connectSection || targetInput).scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start',
+                    });
+                    window.setTimeout(() => {
+                        targetInput.focus({ preventScroll: true });
+                    }, 300);
+                }, 0);
+            } else {
+                elements.connectTarget.focus();
+            }
+        }
     }
 
     function syncNetworkFromTarget() {
@@ -863,8 +1154,30 @@
         if (!button) return;
         const item = state.favorites.find((entry) => favoriteKey(entry.network, entry.target) === String(button.dataset.loadFavorite || ''));
         if (!item) return;
-        loadConnectTarget(item.network, item.target, item, { focus: false, focusTarget: true });
+        event.preventDefault();
+        button.blur();
+        loadConnectTarget(item.network, item.target, item, {
+            focus: false,
+            focusTarget: true,
+        });
     });
+
+    for (const button of elements.favoriteSortButtons) {
+        button.addEventListener('click', () => {
+            const key = String(button.dataset.dashboardFavoriteSort || '');
+            if (!['target', 'station', 'network'].includes(key)) return;
+
+            if (dashboardFavoritesSortKey === key) {
+                dashboardFavoritesSortDirection =
+                    dashboardFavoritesSortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                dashboardFavoritesSortKey = key;
+                dashboardFavoritesSortDirection = 'asc';
+            }
+
+            renderDashboardFavorites();
+        });
+    }
 
     const query = new URLSearchParams(window.location.search);
     if (query.get('target')) {
@@ -884,7 +1197,11 @@
     }
 
     function downstreamLists() {
-        return [elements.downstream, elements.downstreamExpanded].filter(Boolean);
+        return [
+            elements.downstream,
+            elements.downstreamExpanded,
+            elements.downstreamMobile,
+        ].filter(Boolean);
     }
 
     function syncListSelection(lists, sourceList, attribute, key) {
@@ -992,6 +1309,10 @@
             bringFloatingWindowToFront(config);
             window.requestAnimationFrame(() => {
                 constrainFloatingWindow(config);
+                if (config.key === 'downstream' && elements.downstreamExpanded) {
+                    elements.downstreamExpanded.scrollTop = 0;
+                    elements.downstreamExpanded.scrollLeft = 0;
+                }
                 config.close?.focus({ preventScroll: true });
             });
         } else if (returnFocus && desktopFloatingMedia.matches) {
@@ -1091,6 +1412,11 @@
             return;
         }
 
+        if (mobileDownstreamSheetOpen()) {
+            setMobileDownstreamSheetOpen(false, true);
+            return;
+        }
+
         const openWindows = floatingWindows
             .filter((item) => item.panel.hidden === false)
             .sort((a, b) => Number(b.panel.style.zIndex || 90) - Number(a.panel.style.zIndex || 90));
@@ -1112,6 +1438,71 @@
         desktopFloatingMedia.addEventListener('change', handleFloatingViewportChange);
     } else if (typeof desktopFloatingMedia.addListener === 'function') {
         desktopFloatingMedia.addListener(handleFloatingViewportChange);
+    }
+
+    function mobileDownstreamSheetOpen() {
+        return Boolean(
+            elements.downstreamMobileSheet
+            && elements.downstreamMobileSheet.hidden === false
+        );
+    }
+
+    function setMobileDownstreamSheetOpen(open, returnFocus = false) {
+        if (
+            !elements.downstreamMobileSheet
+            || !elements.downstreamMobileOpen
+        ) {
+            return;
+        }
+
+        const shouldOpen = Boolean(open) && mobileDownstreamMedia.matches;
+        elements.downstreamMobileSheet.hidden = !shouldOpen;
+        elements.downstreamMobileSheet.setAttribute(
+            'aria-hidden',
+            shouldOpen ? 'false' : 'true'
+        );
+        elements.downstreamMobileOpen.setAttribute(
+            'aria-expanded',
+            shouldOpen ? 'true' : 'false'
+        );
+        document.body.classList.toggle(
+            'ac-mobile-downstream-sheet-open',
+            shouldOpen
+        );
+
+        if (shouldOpen) {
+            state.downstreamRenderSignature = '';
+            renderDownstream();
+            window.requestAnimationFrame(() => {
+                elements.downstreamMobileClose?.focus({ preventScroll: true });
+            });
+        } else if (returnFocus) {
+            elements.downstreamMobileOpen.focus({ preventScroll: true });
+        }
+    }
+
+    elements.downstreamMobileOpen?.addEventListener('click', () => {
+        setMobileDownstreamSheetOpen(true);
+    });
+    elements.downstreamMobileClose?.addEventListener('click', () => {
+        setMobileDownstreamSheetOpen(false, true);
+    });
+
+    function handleMobileDownstreamViewportChange() {
+        if (!mobileDownstreamMedia.matches && mobileDownstreamSheetOpen()) {
+            setMobileDownstreamSheetOpen(false);
+        }
+    }
+
+    if (typeof mobileDownstreamMedia.addEventListener === 'function') {
+        mobileDownstreamMedia.addEventListener(
+            'change',
+            handleMobileDownstreamViewportChange
+        );
+    } else if (typeof mobileDownstreamMedia.addListener === 'function') {
+        mobileDownstreamMedia.addListener(
+            handleMobileDownstreamViewportChange
+        );
     }
 
     function escapeHtml(value) {
@@ -1136,40 +1527,63 @@
         if (Number.isNaN(date.getTime())) {
             return '—';
         }
-
-        const pad = (number) => String(number).padStart(2, '0');
-        const month = pad(date.getMonth() + 1);
-        const day = pad(date.getDate());
-        const year = date.getFullYear();
-        const hours = date.getHours();
-        const displayHour = pad(hours % 12 || 12);
-        const minutes = pad(date.getMinutes());
-        const period = hours >= 12 ? 'PM' : 'AM';
-        return `${month}-${day}-${year} ${displayHour}:${minutes} ${period}`;
+        return date.toLocaleTimeString([], {
+            hour: 'numeric',
+            minute: '2-digit',
+        });
     }
 
     function renderSystemStatus(system) {
         const data = system && typeof system === 'object' ? system : {};
+        const number = (key) => {
+            const value = Number(data[key]);
+            return Number.isFinite(value) ? value : null;
+        };
         const compact = (key) => {
             const value = String(data[key] ?? '').trim();
             return value !== '' ? value : '—';
         };
+        const setValue = (element, value, title) => {
+            if (!element) return;
+            element.textContent = value;
+            element.closest('.ac-system-pill')?.setAttribute('title', title);
+        };
 
-        if (elements.systemCpu) {
-            elements.systemCpu.textContent = compact('cpu_compact');
-        }
-        if (elements.systemRam) {
-            elements.systemRam.textContent = compact('memory_compact');
-        }
-        if (elements.systemTemp) {
-            elements.systemTemp.textContent = compact('temperature_compact');
-        }
-        if (elements.systemUptime) {
-            elements.systemUptime.textContent = compact('uptime_compact');
-        }
-        if (elements.systemDisk) {
-            elements.systemDisk.textContent = compact('root_compact');
-        }
+        const cpuPercent = number('cpu_percent');
+        setValue(
+            elements.systemCpu,
+            cpuPercent === null ? compact('cpu_compact') : `${Math.round(cpuPercent)}%`,
+            `CPU use: ${compact('cpu_compact')}`
+        );
+
+        const memoryUsed = number('memory_used_bytes');
+        const memoryTotal = number('memory_total_bytes');
+        const memoryPercent = memoryUsed !== null && memoryTotal !== null && memoryTotal > 0
+            ? Math.max(0, Math.min(100, Math.round((memoryUsed / memoryTotal) * 100)))
+            : null;
+        setValue(
+            elements.systemRam,
+            memoryPercent === null ? compact('memory_compact') : `${memoryPercent}%`,
+            `Memory: ${compact('memory_compact')}`
+        );
+
+        const temperatureF = number('temperature_f');
+        setValue(
+            elements.systemTemp,
+            temperatureF === null ? compact('temperature_compact') : `${Math.round(temperatureF)}°F`,
+            `Temperature: ${compact('temperature_compact')}`
+        );
+
+        setValue(
+            elements.systemDisk,
+            compact('root_compact'),
+            `Root disk used: ${compact('root_compact')}`
+        );
+        setValue(
+            elements.systemUptime,
+            compact('uptime_compact'),
+            `Uptime: ${compact('uptime_compact')}`
+        );
     }
 
     function activityEventKey(event) {
@@ -1376,19 +1790,6 @@
         };
     }
 
-    function sourceClass(kind) {
-        return {
-            asl: 'chip-asl',
-            echo: 'chip-echo',
-            iax: 'chip-iax',
-            client: 'chip-client',
-        }[kind] || 'chip-client';
-    }
-
-    function modeClass(mode) {
-        return mode === 'local_monitor' ? 'chip-monitor' : 'chip-tx';
-    }
-
     function selectItem(item, type) {
         state.selectedKey = String(item?.key || '');
         state.selectedType = state.selectedKey ? type : '';
@@ -1470,7 +1871,10 @@
             }
             return elapsed;
         }
-        return formatConnectionDuration(item?.duration_seconds || 0);
+        const durationSeconds = item?.duration_seconds;
+        return durationSeconds === null || durationSeconds === undefined || String(durationSeconds).trim() === ''
+            ? '—'
+            : formatConnectionDuration(durationSeconds);
     }
 
     function connectionDirection(item) {
@@ -1487,6 +1891,10 @@
 
     function openFavoriteModal(item) {
         if (!canWrite || !item) return;
+        if (Boolean(item.is_private)) {
+            setControlStatus('Private AllStar nodes cannot be saved as AllStarLink Favorites.', true);
+            return;
+        }
         const networkCode = favoriteNetworkForItem(item);
         const target = favoriteTargetForItem(item);
         if (!target) {
@@ -1931,32 +2339,67 @@
         return state.downstreamFilter === 'all' || downstreamCategory(item) === state.downstreamFilter;
     }
 
-    function downstreamFilterCounts() {
+    function downstreamFilterCounts(items, includeLocalClients = false) {
         const counts = { all: 0, nodes: 0, privateNodes: 0, clients: 0, echolink: 0 };
-        for (const item of state.downstreamNodes) {
+
+        for (const item of items) {
             const category = downstreamCategory(item);
             if (category === 'private') counts.privateNodes++;
             else if (category && category in counts) counts[category]++;
         }
-        counts.clients += state.connections.filter(isRemoteWebPhoneClient).length;
+
+        if (includeLocalClients) {
+            counts.clients += state.connections.filter(isRemoteWebPhoneClient).length;
+        }
+
         counts.all = counts.nodes + counts.privateNodes + counts.clients + counts.echolink;
         return counts;
     }
 
+    function selectedBranchFilterCounts() {
+        if (state.preferredRemoteClients) {
+            return downstreamFilterCounts([], true);
+        }
+
+        const selectedDirectNode = String(
+            state.preferredDirectNode
+            || state.downstreamDirect[0]?.node
+            || ''
+        ).trim();
+
+        const branchItems = selectedDirectNode
+            ? state.downstreamNodes.filter(
+                (item) => String(item?.direct_node || '').trim() === selectedDirectNode
+            )
+            : state.downstreamNodes;
+
+        return downstreamFilterCounts(branchItems, false);
+    }
+
     function updateDownstreamFilters() {
-        const counts = downstreamFilterCounts();
-        const values = {
+        const dashboardCounts = selectedBranchFilterCounts();
+        const expandedCounts = downstreamFilterCounts(state.downstreamNodes, true);
+
+        const valuesFor = (counts) => ({
             all: counts.all,
             nodes: counts.nodes,
             private: counts.privateNodes,
             clients: counts.clients,
             echolink: counts.echolink,
-        };
-        for (const [filter, value] of Object.entries(values)) {
-            for (const count of elements.downstreamFilterCounts[filter] || []) {
-                count.textContent = String(value);
+        });
+
+        const dashboardValues = valuesFor(dashboardCounts);
+        const expandedValues = valuesFor(expandedCounts);
+
+        for (const [filter, countElements] of Object.entries(elements.downstreamFilterCounts)) {
+            for (const count of countElements || []) {
+                const values = count.closest('#allstar-connect-downstream-window')
+                    ? expandedValues
+                    : dashboardValues;
+                count.textContent = String(values[filter] || 0);
             }
         }
+
         for (const button of elements.downstreamFilters) {
             const active = String(button.dataset.downstreamFilter || '') === state.downstreamFilter;
             button.classList.toggle('is-active', active);
@@ -1995,11 +2438,6 @@
         if (isDownstreamEchoLink(item)) endpoint = String(item.callsign || endpoint).trim();
         if (endpoint && path[path.length - 1] !== endpoint) path.push(endpoint);
         return path.join(' → ');
-    }
-
-    function downstreamIdentity(item) {
-        if (Boolean(item?.is_private)) return `Node ${item.node} - Private Node`;
-        return [item.callsign, item.description, item.location].filter(Boolean).join(' — ') || `Node ${item.node}`;
     }
 
     function downstreamRenderSignature() {
@@ -2082,12 +2520,77 @@
             options.push(`<option value="__remote_clients__" data-full-label="${escapeHtml(remoteLabel)}">${escapeHtml(remoteLabel)}</option>`);
         }
         if (!options.length) options.push('<option value="" data-full-label="Automatic">Automatic</option>');
-        select.innerHTML = options.join('');
-        select.value = currentValue;
-        if (!select.value && roots.length) select.value = String(roots[0].node || '');
-        const selectedOption = select.options[select.selectedIndex] || null;
-        select.title = selectedOption ? String(selectedOption.dataset.fullLabel || selectedOption.textContent || '') : '';
+
+        const optionsSignature = JSON.stringify([
+            roots.map((root) => [
+                String(root.node || '').trim(),
+                String(root.callsign || '').trim(),
+                String(root.description || '').trim(),
+                String(root.location || '').trim(),
+            ]),
+            remoteCount,
+        ]);
+        const controlActive = document.activeElement === select;
+
+        // Never destroy and rebuild a native selector while the operator has
+        // it open. Mobile browsers can flash or strand the picker when the
+        // two-second downstream refresh replaces its options.
+        if (!controlActive && select.dataset.optionsSignature !== optionsSignature) {
+            select.innerHTML = options.join('');
+            select.dataset.optionsSignature = optionsSignature;
+        }
+
+        if (!controlActive) {
+            select.value = currentValue;
+            if (!select.value && roots.length) select.value = String(roots[0].node || '');
+            const selectedOption = select.options[select.selectedIndex] || null;
+            select.title = selectedOption
+                ? String(selectedOption.dataset.fullLabel || selectedOption.textContent || '')
+                : '';
+        }
+
         select.disabled = roots.length === 0 && remoteCount === 0;
+    }
+
+    function syncMobileDownstreamControls() {
+        const sourceSelect = elements.downstreamBranch;
+        const mobileSelect = elements.downstreamMobileBranch;
+
+        if (sourceSelect && mobileSelect) {
+            const controlActive = document.activeElement === mobileSelect;
+            const signature = String(
+                sourceSelect.dataset.optionsSignature || ''
+            );
+
+            if (
+                !controlActive
+                && mobileSelect.dataset.optionsSignature !== signature
+            ) {
+                mobileSelect.innerHTML = sourceSelect.innerHTML;
+                mobileSelect.dataset.optionsSignature = signature;
+            }
+            if (!controlActive) {
+                mobileSelect.value = sourceSelect.value;
+                const selectedOption =
+                    mobileSelect.options[mobileSelect.selectedIndex] || null;
+                mobileSelect.title = selectedOption
+                    ? String(
+                        selectedOption.dataset.fullLabel
+                        || selectedOption.textContent
+                        || ''
+                    )
+                    : '';
+            }
+            mobileSelect.disabled = sourceSelect.disabled;
+        }
+
+        if (
+            elements.downstreamMobileSearch
+            && document.activeElement !== elements.downstreamMobileSearch
+            && elements.downstreamMobileSearch.value !== state.downstreamSearch
+        ) {
+            elements.downstreamMobileSearch.value = state.downstreamSearch;
+        }
     }
 
     function downstreamRowIdentity(item) {
@@ -2176,15 +2679,138 @@
             </section>`;
     }
 
+    function downstreamDashboardScroller() {
+        return elements.downstream?.querySelector('.ac-ds-group > .ac-ds-children') || null;
+    }
+
+    function downstreamScrollSurfaces() {
+        const surfaces = [];
+        const dashboard = downstreamDashboardScroller();
+        if (dashboard) {
+            const group = dashboard.closest('.ac-ds-group');
+            surfaces.push({
+                name: 'dashboard',
+                container: dashboard,
+                branch: String(group?.dataset.directNode || group?.dataset.downstreamGroup || ''),
+            });
+        }
+        if (elements.downstreamExpanded && elements.downstreamExpanded.offsetParent !== null) {
+            surfaces.push({
+                name: 'expanded',
+                container: elements.downstreamExpanded,
+                branch: '',
+            });
+        }
+        if (mobileDownstreamSheetOpen()) {
+            const mobile = elements.downstreamMobile?.querySelector(
+                '.ac-ds-group > .ac-ds-children'
+            ) || null;
+            if (mobile) {
+                const group = mobile.closest('.ac-ds-group');
+                surfaces.push({
+                    name: 'mobile',
+                    container: mobile,
+                    branch: String(
+                        group?.dataset.directNode
+                        || group?.dataset.downstreamGroup
+                        || ''
+                    ),
+                });
+            }
+        }
+        return surfaces;
+    }
+
+    function downstreamAnchorForRow(row) {
+        if (!row) return null;
+        if (row.dataset.downstreamRootKey) return { type: 'root', key: String(row.dataset.downstreamRootKey) };
+        if (row.dataset.downstreamKey) return { type: 'node', key: String(row.dataset.downstreamKey) };
+        if (row.dataset.remoteClientKey) return { type: 'client', key: String(row.dataset.remoteClientKey) };
+        return null;
+    }
+
+    function findDownstreamAnchorRow(container, anchor) {
+        if (!container || !anchor?.key) return null;
+        const rows = container.querySelectorAll('[data-downstream-root-key], [data-downstream-key], [data-remote-client-key]');
+        for (const row of rows) {
+            const candidate = downstreamAnchorForRow(row);
+            if (candidate?.type === anchor.type && candidate.key === anchor.key) return row;
+        }
+        return null;
+    }
+
+    function captureDownstreamScrollState() {
+        const captured = new Map();
+        for (const surface of downstreamScrollSurfaces()) {
+            const { container } = surface;
+            const viewport = container.getBoundingClientRect();
+            let anchor = null;
+            const rows = container.querySelectorAll('[data-downstream-root-key], [data-downstream-key], [data-remote-client-key]');
+            for (const row of rows) {
+                const rect = row.getBoundingClientRect();
+                if (rect.bottom <= viewport.top + 1) continue;
+                const identity = downstreamAnchorForRow(row);
+                if (!identity) continue;
+                anchor = {
+                    ...identity,
+                    offset: rect.top - viewport.top,
+                };
+                break;
+            }
+            captured.set(surface.name, {
+                branch: surface.branch,
+                scrollTop: container.scrollTop,
+                scrollLeft: container.scrollLeft,
+                anchor,
+            });
+        }
+        return captured;
+    }
+
+    function restoreDownstreamScrollState(captured) {
+        if (!(captured instanceof Map)) return;
+        for (const surface of downstreamScrollSurfaces()) {
+            const saved = captured.get(surface.name);
+            if (!saved) continue;
+            if (surface.name === 'dashboard' && saved.branch !== surface.branch) continue;
+
+            const { container } = surface;
+            container.scrollTop = saved.scrollTop;
+            container.scrollLeft = saved.scrollLeft;
+
+            const row = findDownstreamAnchorRow(container, saved.anchor);
+            if (!row) continue;
+            const viewport = container.getBoundingClientRect();
+            const currentOffset = row.getBoundingClientRect().top - viewport.top;
+            container.scrollTop += currentOffset - Number(saved.anchor.offset || 0);
+        }
+    }
+
+    function resetDownstreamScroll() {
+        for (const surface of downstreamScrollSurfaces()) {
+            surface.container.scrollTop = 0;
+            surface.container.scrollLeft = 0;
+        }
+    }
+
     function renderDownstream() {
         const lists = downstreamLists();
         if (!lists.length) return;
         for (const list of lists) list.setAttribute('aria-busy','false');
-        updateDownstreamFilters();
         updateDownstreamBranchControl();
+        syncMobileDownstreamControls();
+        updateDownstreamFilters();
 
-        const signature = JSON.stringify([downstreamRenderSignature(), state.downstreamSearch, state.preferredDirectNode, state.preferredRemoteClients]);
+        const signature = JSON.stringify([
+            downstreamRenderSignature(),
+            state.downstreamSearch,
+            state.preferredDirectNode,
+            state.preferredRemoteClients,
+            mobileDownstreamSheetOpen(),
+        ]);
         if (!state.scrollDownstreamOnRender && signature === state.downstreamRenderSignature) return;
+        const resetScroll = state.scrollDownstreamOnRender;
+        const savedScroll = resetScroll ? null : captureDownstreamScrollState();
         state.downstreamRenderSignature = signature;
 
         const remoteClients = state.connections.filter(isRemoteWebPhoneClient)
@@ -2206,20 +2832,27 @@
         const mainMarkup = state.preferredRemoteClients && remoteClients.length
             ? remoteClientsGroupMarkup(remoteClients)
             : (preferredGroup ? downstreamGroupMarkup(preferredGroup.root, preferredGroup.index, preferredGroup.visibleChildren) : remoteClientsGroupMarkup(remoteClients));
+        const expandedGroups = preferredGroup
+            ? [preferredGroup, ...groups.filter((group) => group !== preferredGroup)]
+            : groups;
         const expandedMarkup = [
-            ...groups.map((group) => downstreamGroupMarkup(group.root, group.index, group.visibleChildren)),
-            ...(remoteClients.length ? [remoteClientsGroupMarkup(remoteClients)] : []),
+            ...(state.preferredRemoteClients && remoteClients.length
+                ? [remoteClientsGroupMarkup(remoteClients)]
+                : []),
+            ...expandedGroups.map((group) => downstreamGroupMarkup(group.root, group.index, group.visibleChildren)),
+            ...(!state.preferredRemoteClients && remoteClients.length
+                ? [remoteClientsGroupMarkup(remoteClients)]
+                : []),
         ].join('');
 
         if (elements.downstream) elements.downstream.innerHTML = mainMarkup;
         if (elements.downstreamExpanded) elements.downstreamExpanded.innerHTML = expandedMarkup;
-        if (elements.downstreamNote) {
-            const selectedText = state.preferredRemoteClients ? 'Remote Clients' : (state.preferredDirectNode ? `Branch ${state.preferredDirectNode}` : 'Selected branch');
-            elements.downstreamNote.textContent = `${selectedText}${state.downstreamSearch ? ` · Search: “${state.downstreamSearch}”` : ''}`;
-        }
-        if (state.scrollDownstreamOnRender) {
+        if (elements.downstreamMobile) elements.downstreamMobile.innerHTML = mainMarkup;
+        if (resetScroll) {
             state.scrollDownstreamOnRender = false;
-            for (const list of lists) list.scrollTo({top:0,left:0,behavior:'smooth'});
+            resetDownstreamScroll();
+        } else {
+            restoreDownstreamScrollState(savedScroll);
         }
     }
 
@@ -2263,18 +2896,6 @@
         list.addEventListener('click', (event) => handleDownstreamClick(list, event));
     }
 
-    function setLink(element, url, visible) {
-        if (!element) {
-            return;
-        }
-        element.hidden = !visible;
-        if (visible) {
-            element.href = url;
-        } else {
-            element.removeAttribute('href');
-        }
-    }
-
     function renderDetails(item) {
         if (!item) {
             clearDetails();
@@ -2290,11 +2911,12 @@
             directionLabel = 'Outgoing';
         }
         const isNestedDownstream = Boolean(item.direct_node && String(item.node || '') !== String(item.direct_node || ''));
+        const isDownstreamRoot = String(item.key || '').startsWith('downstream-root:');
+        const directNode = String(item.direct_node || (isDownstreamRoot ? item.node : '') || '').trim();
+        const matchingConnection = directNode
+            ? state.connections.find((connection) => String(connection.node || connection.reported_node || '') === directNode)
+            : null;
         if (!directionLabel) {
-            const directNode = String(item.direct_node || (String(item.key || '').startsWith('downstream-root:') ? item.node : '') || '').trim();
-            const matchingConnection = directNode
-                ? state.connections.find((connection) => String(connection.node || connection.reported_node || '') === directNode)
-                : null;
             const matchingDirection = String(matchingConnection?.direction || '').trim().toLowerCase();
             if (isNestedDownstream) directionLabel = 'Downstream';
             else if (matchingDirection.startsWith('in')) directionLabel = 'Incoming';
@@ -2314,9 +2936,19 @@
         if (elements.detailDirection) elements.detailDirection.textContent = directionLabel;
         if (elements.detailLink) elements.detailLink.textContent = linkLabel;
         if (elements.detailConnectedTo) elements.detailConnectedTo.textContent = connectedTo;
-        if (elements.detailDuration) elements.detailDuration.textContent = isNestedDownstream ? '—' : connectionDurationLabel(item);
+        const durationItem = isDownstreamRoot && matchingConnection ? matchingConnection : item;
+        if (elements.detailDuration) {
+            elements.detailDuration.textContent = isNestedDownstream ? '—' : connectionDurationLabel(durationItem);
+        }
         if (elements.detailMode) elements.detailMode.textContent = modeLabel;
         const favoriteTarget = favoriteTargetForItem(item);
+        const connectCandidate = connectTargetCandidateForItem(item);
+        const connectTarget = connectTargetForItem(item);
+        const checkingAllStar = Boolean(
+            connectCandidate
+            && connectCandidate.network === 'ASL'
+            && !state.loadIdentityCache.has(connectCandidate.target)
+        );
         const savedFavorite = favoriteTarget ? favoriteFor(favoriteNetworkForItem(item), favoriteTarget) : null;
         if (elements.detailFavoriteState) elements.detailFavoriteState.textContent = savedFavorite ? 'Saved' : 'Not saved';
 
@@ -2344,7 +2976,11 @@
         }
 
         const hasQrz = Boolean(item.qrz_url);
-        const canFavorite = canWrite && !item.historical && ['asl', 'echo'].includes(kind) && Boolean(favoriteTarget);
+        const canFavorite = canWrite
+            && !item.historical
+            && !Boolean(item.is_private)
+            && ['asl', 'echo'].includes(kind)
+            && Boolean(favoriteTarget);
         if (elements.detailQrz) {
             elements.detailQrz.classList.toggle('is-disabled', !hasQrz);
             elements.detailQrz.setAttribute('aria-disabled', hasQrz ? 'false' : 'true');
@@ -2358,6 +2994,18 @@
                 elements.detailQrz.removeAttribute('rel');
             }
         }
+        if (elements.detailLoad) {
+            elements.detailLoad.disabled = !canWrite || !connectTarget;
+            elements.detailLoad.hidden = !canWrite;
+            elements.detailLoad.title = connectTarget
+                ? `Load ${networkDisplay(connectTarget.network)} ${connectTarget.target} into Connect`
+                : (checkingAllStar
+                    ? 'Checking this node against the local AllStar node database'
+                    : 'Only a verified public AllStarLink node or resolved EchoLink node can be loaded');
+        }
+        if (checkingAllStar) {
+            refreshLoadEligibility(item);
+        }
         if (elements.detailFavorite) {
             elements.detailFavorite.disabled = !canFavorite;
             elements.detailFavorite.textContent = savedFavorite ? '★ Edit Favorite' : '☆ Add to Favorites';
@@ -2365,6 +3013,25 @@
         }
         if (elements.detailLinks) elements.detailLinks.hidden = false;
     }
+
+    elements.detailLoad?.addEventListener('click', async () => {
+        const item = selectedItem();
+        const candidate = connectTargetCandidateForItem(item);
+        if (!candidate) return;
+
+        if (candidate.network === 'ASL' && !(await verifyAllStarLoadTarget(candidate.target))) {
+            setControlStatus('That number is not a verified public AllStarLink node.', true);
+            renderDetails(selectedItem());
+            return;
+        }
+
+        const target = connectTargetForItem(item);
+        if (!target) return;
+        loadConnectTarget(target.network, target.target, item, {
+            focus: false,
+            focusTarget: true,
+        });
+    });
 
     elements.detailFavorite?.addEventListener('click', () => {
         const item = selectedItem();
@@ -2388,6 +3055,11 @@
             elements.detailQrz.classList.add('is-disabled');
             elements.detailQrz.setAttribute('aria-disabled', 'true');
             elements.detailQrz.removeAttribute('href');
+        }
+        if (elements.detailLoad) {
+            elements.detailLoad.hidden = !canWrite;
+            elements.detailLoad.disabled = true;
+            elements.detailLoad.title = 'This row does not have a valid connect target';
         }
         if (elements.detailFavorite) {
             elements.detailFavorite.hidden = !canWrite;
@@ -2538,6 +3210,9 @@
         if (elements.downstreamCount) {
             elements.downstreamCount.textContent = String(total);
         }
+        if (elements.downstreamMobileCount) {
+            elements.downstreamMobileCount.textContent = String(total);
+        }
         if (!elements.downstreamNote) {
             return;
         }
@@ -2549,18 +3224,22 @@
                 : 'Waiting for direct AllStarLink';
             return;
         }
-        if (cache.refreshing) {
-            elements.downstreamNote.textContent = cache.pending > 0
-                ? `Scanning · ${cache.pending} queued`
-                : 'Finishing scan';
-            return;
-        }
+
+        const selectedText = state.preferredRemoteClients
+            ? 'Remote Clients'
+            : (state.preferredDirectNode ? `Branch ${state.preferredDirectNode}` : 'Selected branch');
+        const searchText = state.downstreamSearch ? ` · Search: “${state.downstreamSearch}”` : '';
+        let statusText;
+
         if (!cache.updated_at) {
-            elements.downstreamNote.textContent = 'Waiting for first cached result';
-            return;
+            statusText = cache.refreshing
+                ? (cache.pending > 0 ? `Scanning · ${cache.pending} queued` : 'Finishing scan')
+                : 'Waiting for first cached result';
+        } else {
+            statusText = hidden > 0 ? `Tree ready · ${hidden} filtered` : 'Tree ready';
         }
 
-        elements.downstreamNote.textContent = hidden > 0 ? `Tree ready · ${hidden} filtered` : 'Tree ready';
+        elements.downstreamNote.textContent = `${selectedText} · ${statusText}${searchText}`;
     }
 
     function renderDownstreamSnapshot(snapshot) {
@@ -2659,10 +3338,7 @@
                 return;
             }
             state.downstreamFilter = filter;
-            state.scrollDownstreamOnRender = false;
-            for (const list of downstreamLists()) {
-                list.scrollTop = 0;
-            }
+            state.scrollDownstreamOnRender = true;
             renderDownstream();
         });
     }
@@ -2675,20 +3351,54 @@
         renderDownstream();
     });
 
+    elements.downstreamMobileBranch?.addEventListener('change', () => {
+        const value = String(elements.downstreamMobileBranch.value || '');
+        state.preferredRemoteClients = value === '__remote_clients__';
+        state.preferredDirectNode = state.preferredRemoteClients ? '' : value;
+        if (
+            elements.downstreamBranch
+            && document.activeElement !== elements.downstreamBranch
+        ) {
+            elements.downstreamBranch.value = value;
+        }
+        state.scrollDownstreamOnRender = true;
+        renderDownstream();
+    });
+
     elements.downstreamSearch?.addEventListener('input', () => {
         state.downstreamSearch = String(elements.downstreamSearch.value || '').trim();
-        state.scrollDownstreamOnRender = false;
-        for (const list of downstreamLists()) {
-            list.scrollTop = 0;
-            list.scrollLeft = 0;
+        if (
+            elements.downstreamMobileSearch
+            && document.activeElement !== elements.downstreamMobileSearch
+        ) {
+            elements.downstreamMobileSearch.value = state.downstreamSearch;
         }
+        state.scrollDownstreamOnRender = true;
+        renderDownstream();
+    });
+
+    elements.downstreamMobileSearch?.addEventListener('input', () => {
+        state.downstreamSearch = String(
+            elements.downstreamMobileSearch.value || ''
+        ).trim();
+        if (
+            elements.downstreamSearch
+            && document.activeElement !== elements.downstreamSearch
+        ) {
+            elements.downstreamSearch.value = state.downstreamSearch;
+        }
+        state.scrollDownstreamOnRender = true;
         renderDownstream();
     });
 
     function updateCurrentTime() {
-        if (elements.currentTime) {
-            elements.currentTime.textContent = formatCurrentDateTime(new Date());
-        }
+        if (!elements.currentTime) return;
+        const now = new Date();
+        elements.currentTime.textContent = formatCurrentDateTime(now);
+        elements.currentTime.closest('.ac-system-pill')?.setAttribute(
+            'title',
+            `Local time: ${now.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`
+        );
     }
 
     function startClock() {

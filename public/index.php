@@ -175,6 +175,21 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                     <div class="ac-subhead">
                         <h3>Favorites</h3>
                     </div>
+                    <div class="ac-dashboard-favorites-head" aria-label="Sort dashboard Favorites">
+                        <span class="ac-dashboard-favorites-head-spacer" aria-hidden="true"></span>
+                        <button type="button" class="ac-dashboard-favorites-sort is-active" data-dashboard-favorite-sort="target" aria-sort="ascending">
+                            <span>Node</span>
+                            <span class="ac-dashboard-favorites-sort-indicator" aria-hidden="true">▲</span>
+                        </button>
+                        <button type="button" class="ac-dashboard-favorites-sort" data-dashboard-favorite-sort="station" aria-sort="none">
+                            <span>Station</span>
+                            <span class="ac-dashboard-favorites-sort-indicator" aria-hidden="true">↕</span>
+                        </button>
+                        <button type="button" class="ac-dashboard-favorites-sort" data-dashboard-favorite-sort="network" aria-sort="none">
+                            <span>Network</span>
+                            <span class="ac-dashboard-favorites-sort-indicator" aria-hidden="true">↕</span>
+                        </button>
+                    </div>
                     <div class="ac-favorites-list" id="allstar-connect-favorites">
                         <div class="ac-empty-inline">
                             <strong>No Favorites saved yet</strong>
@@ -195,12 +210,24 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                         <h2>Current Connections</h2>
                         <strong class="ac-count" data-connections-count>0</strong>
                     </div>
-                    <div class="ac-connections-node-center">
-                        <?php if ($myNodeIsValid): ?>
-                            <a class="ac-local-node-pill" href="https://stats.allstarlink.org/stats/<?= e($myNode) ?>" target="_blank" rel="noopener noreferrer" title="Open local node <?= e($myNode) ?> on AllStarLink Stats">Node <?= e($myNode) ?></a>
-                        <?php else: ?>
-                            <span class="ac-local-node-pill is-disabled">Node not configured</span>
-                        <?php endif; ?>
+                    <div class="ac-system-cluster">
+                        <div class="ac-system-pills ac-system-pills-left" aria-label="Live system status">
+                            <span class="ac-system-pill" title="Current local time"><span>Time</span><strong id="allstar-connect-current-time">—</strong></span>
+                            <span class="ac-system-pill" title="Current CPU use"><span>CPU</span><strong id="allstar-connect-system-cpu">—</strong></span>
+                            <span class="ac-system-pill" title="Current memory use"><span>RAM</span><strong id="allstar-connect-system-ram">—</strong></span>
+                        </div>
+                        <div class="ac-connections-node-center">
+                            <?php if ($myNodeIsValid): ?>
+                                <a class="ac-local-node-pill" href="https://stats.allstarlink.org/stats/<?= e($myNode) ?>" target="_blank" rel="noopener noreferrer" title="Open local node <?= e($myNode) ?> on AllStarLink Stats">Node <?= e($myNode) ?></a>
+                            <?php else: ?>
+                                <span class="ac-local-node-pill is-disabled">Node not configured</span>
+                            <?php endif; ?>
+                        </div>
+                        <div class="ac-system-pills ac-system-pills-right" aria-label="Live system status">
+                            <span class="ac-system-pill" title="Current system temperature"><span>Temp</span><strong id="allstar-connect-system-temp">—</strong></span>
+                            <span class="ac-system-pill" title="Root disk space used"><span>Disk</span><strong id="allstar-connect-system-disk">—</strong></span>
+                            <span class="ac-system-pill" title="System uptime"><span>Uptime</span><strong id="allstar-connect-system-uptime">—</strong></span>
+                        </div>
                     </div>
                     <div class="ac-direction-legend">
                         <span class="is-incoming">↓ Incoming</span>
@@ -290,6 +317,13 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                 <div class="ac-downstream-footer">
                     <span>Direct-node groups are color-coded for easier branch tracking.</span>
                     <span>Private nodes are shown in gold.</span>
+                    <button
+                        type="button"
+                        class="ac-mobile-downstream-open"
+                        id="allstar-connect-downstream-mobile-open"
+                        aria-controls="allstar-connect-downstream-mobile-sheet"
+                        aria-expanded="false"
+                    >View All Downstream</button>
                 </div>
             </section>
         </section>
@@ -317,6 +351,7 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                 <p class="ac-detail-description" id="allstar-connect-detail-description">Select a connection, downstream node, or activity entry to see its details.</p>
                 <div class="ac-detail-actions" id="allstar-connect-detail-links">
                     <a id="allstar-connect-detail-qrz" class="is-disabled" aria-disabled="true" target="_blank" rel="noopener noreferrer">QRZ Page ↗</a>
+                    <button type="button" class="ac-detail-load" id="allstar-connect-detail-load" title="Load this node into Connect" disabled>Load</button>
                     <button type="button" class="ac-favorite-detail" id="allstar-connect-detail-favorite" disabled>☆ Add to Favorites</button>
                 </div>
                 <span id="allstar-connect-detail-path" hidden>Select a row</span>
@@ -348,6 +383,50 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
             </section>
         </aside>
     </main>
+
+    <section
+        class="ac-mobile-downstream-sheet"
+        id="allstar-connect-downstream-mobile-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="allstar-connect-downstream-mobile-title"
+        aria-hidden="true"
+        hidden
+    >
+        <header class="ac-mobile-downstream-sheet-header">
+            <div>
+                <strong id="allstar-connect-downstream-mobile-title">Downstream Nodes</strong>
+                <span><span id="allstar-connect-downstream-mobile-count">0</span> total downstream nodes</span>
+            </div>
+            <button type="button" class="ac-mobile-downstream-close" id="allstar-connect-downstream-mobile-close" aria-label="Close Downstream Nodes">×</button>
+        </header>
+        <div class="ac-mobile-downstream-sheet-controls">
+            <label class="ac-compact-field">
+                <span>Branch</span>
+                <select id="allstar-connect-downstream-mobile-branch" aria-label="Choose a direct downstream branch">
+                    <option value="">Automatic</option>
+                </select>
+            </label>
+            <label class="ac-downstream-search">
+                <span class="sr-only">Search downstream nodes</span>
+                <input id="allstar-connect-downstream-mobile-search" type="search" placeholder="Search nodes">
+            </label>
+        </div>
+        <div class="allstar-connect-downstream-filters ac-mobile-downstream-sheet-filters" role="group" aria-label="Filter mobile downstream connections">
+            <button type="button" class="allstar-connect-downstream-filter is-active" data-downstream-filter="all" aria-pressed="true">All <strong data-downstream-filter-count="all">0</strong></button>
+            <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="nodes" aria-pressed="false">Nodes <strong data-downstream-filter-count="nodes">0</strong></button>
+            <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="private" aria-pressed="false">Private <strong data-downstream-filter-count="private">0</strong></button>
+            <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="clients" aria-pressed="false">Clients <strong data-downstream-filter-count="clients">0</strong></button>
+            <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="echolink" aria-pressed="false">EchoLink <strong data-downstream-filter-count="echolink">0</strong></button>
+        </div>
+        <div id="allstar-connect-downstream-mobile" class="allstar-connect-downstream-list ac-mobile-downstream-sheet-list ac-scroll" aria-live="polite" aria-busy="true" tabindex="0">
+            <div class="ac-empty-state">
+                <span class="ac-empty-symbol" aria-hidden="true">◇</span>
+                <strong>Loading downstream data…</strong>
+                <p>The selected direct-node branch will appear here.</p>
+            </div>
+        </div>
+    </section>
 
     <div class="ac-favorite-modal-backdrop" id="allstar-connect-favorite-modal" hidden aria-hidden="true">
         <section class="ac-favorite-modal-card" role="dialog" aria-modal="true" aria-labelledby="allstar-connect-favorite-title">

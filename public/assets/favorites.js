@@ -53,9 +53,15 @@
         return /^3\d{6}$/.test(clean) ? 'ECHO' : (String(network || '').toUpperCase() === 'ECHO' ? 'ECHO' : 'ASL');
     }
 
+    function privateAllStarTarget(target) {
+        return /^1\d{3}$/.test(cleanTarget(target));
+    }
+
     function validTarget(network, target) {
         const clean = cleanTarget(target);
-        return networkForTarget(network, clean) === 'ECHO' ? /^3\d{6}$/.test(clean) : /^\d{1,7}$/.test(clean);
+        return networkForTarget(network, clean) === 'ECHO'
+            ? /^3\d{6}$/.test(clean)
+            : /^\d{1,7}$/.test(clean) && !privateAllStarTarget(clean);
     }
 
     function networkLabel(value) {
@@ -481,6 +487,10 @@
             name: elements.name.value,
             description: elements.description.value,
         };
+        if (payload.network === 'ASL' && privateAllStarTarget(payload.target)) {
+            setStatus('Private AllStar nodes from 1000 through 1999 cannot be saved as AllStarLink Favorites.', true);
+            return;
+        }
         if (!validTarget(payload.network, payload.target)) {
             setStatus(payload.network === 'ECHO' ? 'Enter the mapped EchoLink target as 3 plus six digits.' : 'Enter a valid AllStar node number.', true);
             return;

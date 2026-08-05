@@ -36,10 +36,48 @@ final class Downstream
         $localNode = $this->digits((string) $this->config->get('MYNODE', ''));
         $direct = $this->directSources($connections, $localNode);
         $signature = $this->directSignature($direct);
-        $state = $this->readJson($statePath) ?? $this->newState($signature, $direct);
+        $state = $this->readJson($statePath) ?? $this->newState($signature, $direct, true);
         if (($state['signature'] ?? '') !== $signature) {
             $retryAt = trim((string) ($state['retry_at'] ?? ''));
-            $state = $this->newState($signature, $direct);
+            $previousRows = [];
+            foreach (array_merge(
+                array_values(array_filter($state['display_nodes'] ?? [], 'is_array')),
+                array_values(array_filter($state['scan']['working_nodes'] ?? [], 'is_array'))
+            ) as $item) {
+                $this->addWorkingNode($previousRows, $item);
+            }
+            $previousDisplay = array_values($previousRows);
+            $previousUpdatedAt = trim((string) ($state['display_updated_at'] ?? ''));
+            $activeDirectNodes = [];
+            foreach ($direct as $item) {
+                $node = $this->digits((string) ($item['node'] ?? ''));
+                if ($node !== '') {
+                    $activeDirectNodes[$node] = true;
+                }
+            }
+
+            $state = $this->newState($signature, $direct, true);
+
+            // Keep completed branches that are still directly connected while
+            // the changed direct-node set is rescanned in the background.
+            if ($previousDisplay !== [] && $activeDirectNodes !== []) {
+                $state['display_nodes'] = array_values(array_filter(
+                    $previousDisplay,
+                    function (array $item) use ($activeDirectNodes): bool {
+                        $directNode = $this->digits(
+                            (string) ($item['direct_node'] ?? '')
+                        );
+                        return $directNode !== ''
+                            && isset($activeDirectNodes[$directNode]);
+                    }
+                ));
+                if ($state['display_nodes'] !== []) {
+                    $state['display_updated_at'] = $previousUpdatedAt !== ''
+                        ? $previousUpdatedAt
+                        : gmdate('c');
+                }
+            }
+
             if ($retryAt !== '') {
                 $state['retry_at'] = $retryAt;
             }
@@ -50,7 +88,7 @@ final class Downstream
         $scanVersionChanged = (int) ($state['scan_version'] ?? 0) !== self::SCAN_VERSION;
         if ($scanVersionChanged) {
             $state['scan_version'] = self::SCAN_VERSION;
-            $state['scan'] = $direct === [] ? null : $this->newScan($direct);
+            $state['scan'] = $direct === [] ? null : $this->newScan($direct, true);
         }
 
         $lock = @fopen($lockPath, 'c');
@@ -140,7 +178,7 @@ final class Downstream
         return hash('sha256', implode('|', $parts));
     }
 
-    private function newState(string $signature, array $direct): array
+    private function newState(string $signature, array $direct, bool $useCachedRoots = false): array
     {
         return [
             'scan_version' => self::SCAN_VERSION,
@@ -149,11 +187,11 @@ final class Downstream
             'display_nodes' => [],
             'display_updated_at' => null,
             'last_attempt_at' => null,
-            'scan' => $direct === [] ? null : $this->newScan($direct),
+            'scan' => $direct === [] ? null : $this->newScan($direct, $useCachedRoots),
         ];
     }
 
-    private function newScan(array $direct): array
+    private function newScan(array $direct, bool $useCachedRoots = false): array
     {
         $queue = [];
         foreach ($direct as $item) {
@@ -167,7 +205,7 @@ final class Downstream
                 'direct_node' => $node,
                 'parent_node' => '',
                 'path_mode' => (string) ($item['mode'] ?? 'transceive'),
-                'force_refresh' => true,
+                'force_refresh' => !$useCachedRoots,
             ];
         }
 
@@ -232,8 +270,9 @@ final class Downstream
                 && trim((string) ($current['parent_node'] ?? '')) === '';
             $forceRefresh = $isDirectRoot && !empty($current['force_refresh']);
 
-            if (!$forceRefresh && $cache !== null && $cache['age'] <= self::NODE_CACHE_SECONDS) {
+            if (!$forceRefresh && $cache !== null && $cache['age'] <= self::STALE_FALLBACK_SECONDS) {
                 $data = $cache['data'];
+                $usedStale = $cache['age'] > self::NODE_CACHE_SECONDS;
             } elseif ($networkReads < self::MAX_NETWORK_READS_PER_REQUEST) {
                 $networkReads++;
                 $scan['api_reads'] = (int) ($scan['api_reads'] ?? 0) + 1;
@@ -762,7 +801,7 @@ final class Downstream
                     $mode = (string) ($connection['mode'] ?? 'transceive');
                     $mode = $mode === 'local_monitor' ? 'local_monitor' : 'transceive';
                     $liveRows[] = [
-                        'key' => 'downstream-peer-asl:' . $directNode . ':' . $node,
+                        'key' => 'downstream:' . $directNode . ':' . $node,
                         'kind' => 'asl',
                         'source' => $isPrivate ? 'Private Node' : 'AllStarLink',
                         'node' => $node,
@@ -915,7 +954,7 @@ final class Downstream
                 $mode = ($connection['mode'] ?? '') === 'local_monitor' ? 'local_monitor' : 'transceive';
                 $isPrivate = (int) $node >= 1000 && (int) $node <= 1999;
                 $this->addWorkingNode($map, array_merge($connection, [
-                    'key' => 'downstream-local-asl:' . $directNode . ':' . $localNode . ':' . $node,
+                    'key' => 'downstream:' . $directNode . ':' . $node,
                     'kind' => 'asl',
                     'source' => $isPrivate ? 'Private Node' : 'AllStarLink',
                     'description' => $isPrivate ? 'Private Node' : (string) ($connection['description'] ?? ''),
@@ -935,6 +974,52 @@ final class Downstream
         $result = array_values($map);
         $this->sortNodes($result);
         return $result;
+    }
+
+    private function normalizePrivateNodeClassification(array $items): array
+    {
+        foreach ($items as &$item) {
+            if (!is_array($item) || strtolower((string) ($item['kind'] ?? 'asl')) !== 'asl') {
+                continue;
+            }
+
+            $node = $this->digits((string) ($item['node'] ?? ''));
+            if ($node === '') {
+                continue;
+            }
+
+            $callsign = NodeIdentity::cleanDisplay((string) ($item['callsign'] ?? ''));
+            $description = NodeIdentity::cleanDisplay((string) ($item['description'] ?? ''));
+            $location = NodeIdentity::cleanDisplay((string) ($item['location'] ?? ''));
+            if (strcasecmp($description, 'Private Node') === 0) {
+                $description = '';
+            }
+
+            $number = (int) $node;
+            $private = ($number >= 1000 && $number <= 1999)
+                || ($callsign === '' && $description === '' && $location === '');
+            $item['is_private'] = $private;
+
+            if ($private) {
+                $item['source'] = 'Private Node';
+                $item['description'] = 'Private Node';
+                $item['display'] = 'Node ' . $node . ' - Private Node';
+                $item['stats_url'] = '';
+                $item['qrz_url'] = '';
+                continue;
+            }
+
+            $item['source'] = 'AllStarLink';
+            $item['description'] = $description;
+            if (preg_match('/^Node\s+' . preg_quote($node, '/') . '\s+-\s+Private Node$/i', (string) ($item['display'] ?? '')) === 1) {
+                $item['display'] = $callsign !== '' ? $callsign : ($description !== '' ? $description : $node);
+            }
+            $item['stats_url'] = 'https://stats.allstarlink.org/stats/' . rawurlencode($node);
+            $qrz = NodeIdentity::qrzCallsign($callsign);
+            $item['qrz_url'] = $qrz !== '' ? 'https://www.qrz.com/db/' . rawurlencode($qrz) : '';
+        }
+        unset($item);
+        return $items;
     }
 
     private function rootAslChild(array $item, string $directNode, array $parents): string
@@ -1003,6 +1088,7 @@ final class Downstream
         if ($localNode !== '' && $direct !== []) {
             $display = $this->overlayLocalNodeBranches($display, $direct, $localNode);
         }
+        $display = $this->normalizePrivateNodeClassification($display);
         $pending = $scan !== null ? count($scan['queue'] ?? []) : 0;
         $updatedAt = $state['display_updated_at'] ?? null;
         $updatedTs = strtotime((string) $updatedAt);
@@ -1054,23 +1140,10 @@ final class Downstream
             return false;
         }
 
-        $length = strlen($node);
-        if ($length < 4 || $length > 6 || $node[0] === '3') {
-            return false;
-        }
-
-        $number = (int) $node;
-        if ($length === 4 && $number >= 1000 && $number <= 1999) {
-            return true;
-        }
-
-        $base = $length === 6 ? substr($node, 0, 5) : $node;
-        $baseLength = strlen($base);
-        if ($baseLength < 4 || $baseLength > 5) {
-            return false;
-        }
-
-        return in_array($base[0], ['2', '4', '5', '6', '7'], true);
+        // A numeric node reported as connected belongs in the topology. Public
+        // identity is resolved later; unresolved numeric rows are displayed as
+        // Private rather than being discarded by number-prefix assumptions.
+        return preg_match('/^[0-9]{4,7}$/', $node) === 1;
     }
 
     private function hiddenNodes(): array
