@@ -1,6 +1,6 @@
 # AllStar Connect
 
-AllStar Connect is a web dashboard for controlling and monitoring an ASL3 node. It focuses on AllStarLink and EchoLink connections, with live status, exact link controls, Favorites, downstream viewing, and optional login protection.
+AllStar Connect is a web dashboard for controlling and monitoring an ASL3 node. It focuses on AllStarLink and EchoLink connections, with live status, exact link controls, Favorites, downstream viewing, and optional login protection. Tested on Debian 13.
 
 ## What you can do
 
