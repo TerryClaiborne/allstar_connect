@@ -209,6 +209,7 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                     <div class="ac-title-with-count">
                         <h2>Current Connections</h2>
                         <strong class="ac-count" data-connections-count>0</strong>
+                        <span class="ac-node-offline" id="allstar-connect-node-offline" role="status" aria-live="polite" hidden>Node Offline</span>
                     </div>
                     <div class="ac-system-cluster">
                         <div class="ac-system-pills ac-system-pills-left" aria-label="Live system status">

@@ -114,7 +114,11 @@
         clockTimer: 0,
         localLoading: false,
         localSnapshotLoaded: false,
+        localController: null,
+        localFailureCount: 0,
+        lastLocalPollTick: Date.now(),
         downstreamLoading: false,
+        downstreamController: null,
         echoLinkLoading: false,
         echoLinkTimer: 0,
         echoLinkNextAllowed: 0,
@@ -3274,12 +3278,43 @@
     }
 
 
+    const LOCAL_OFFLINE_FAILURES = 5;
+
+    function setNodeOffline(offline) {
+        const indicator = document.getElementById('allstar-connect-node-offline');
+        if (indicator) {
+            indicator.hidden = !offline;
+        }
+    }
+
+    function noteLocalSuccess() {
+        state.localFailureCount = 0;
+        setNodeOffline(false);
+    }
+
+    function noteLocalFailure() {
+        state.localFailureCount += 1;
+        if (state.localFailureCount >= LOCAL_OFFLINE_FAILURES) {
+            setNodeOffline(true);
+        }
+    }
+
+    function resetSuspendedRequests() {
+        state.localController?.abort();
+        state.downstreamController?.abort();
+        state.localController = null;
+        state.downstreamController = null;
+        state.localLoading = false;
+        state.downstreamLoading = false;
+    }
+
     async function refreshLocal() {
         if (state.localLoading || document.hidden) {
             return;
         }
         state.localLoading = true;
         const controller = new AbortController();
+        state.localController = controller;
         const timeout = window.setTimeout(() => controller.abort(), 2500);
 
         try {
@@ -3292,15 +3327,23 @@
             if (!response.ok || !payload?.ok || !payload?.data) {
                 throw new Error(payload?.message || 'Local status request failed.');
             }
+            noteLocalSuccess();
             renderLocalSnapshot(payload.data);
         } catch (error) {
+            if (state.localController !== controller) {
+                return;
+            }
+            noteLocalFailure();
             if (error?.name === 'AbortError' && state.localSnapshotLoaded) {
                 return;
             }
             // Keep the last successful snapshot and retry quietly.
         } finally {
             window.clearTimeout(timeout);
-            state.localLoading = false;
+            if (state.localController === controller) {
+                state.localController = null;
+                state.localLoading = false;
+            }
         }
     }
 
@@ -3310,6 +3353,7 @@
         }
         state.downstreamLoading = true;
         const controller = new AbortController();
+        state.downstreamController = controller;
         const timeout = window.setTimeout(() => controller.abort(), 3500);
 
         try {
@@ -3324,10 +3368,16 @@
             }
             renderDownstreamSnapshot(payload.data);
         } catch (error) {
+            if (state.downstreamController !== controller) {
+                return;
+            }
             // Keep the last successful tree and retry quietly.
         } finally {
             window.clearTimeout(timeout);
-            state.downstreamLoading = false;
+            if (state.downstreamController === controller) {
+                state.downstreamController = null;
+                state.downstreamLoading = false;
+            }
         }
     }
 
@@ -3407,21 +3457,52 @@
         state.clockTimer = window.setInterval(updateCurrentTime, 60000);
     }
 
+    function resumeLivePolling() {
+        if (document.hidden) {
+            return;
+        }
+
+        const now = Date.now();
+        const wasSuspended = now - state.lastLocalPollTick > 5000;
+        state.lastLocalPollTick = now;
+
+        if (wasSuspended) {
+            resetSuspendedRequests();
+        }
+
+        updateCurrentTime();
+        refreshLocal();
+        refreshDownstream();
+        scheduleEchoLinkLookup();
+        schedule();
+    }
+
+    function localPollTick() {
+        const now = Date.now();
+        if (now - state.lastLocalPollTick > 5000) {
+            resumeLivePolling();
+            return;
+        }
+
+        state.lastLocalPollTick = now;
+        refreshLocal();
+    }
+
     function schedule() {
         window.clearInterval(state.localTimer);
         window.clearInterval(state.downstreamTimer);
-        state.localTimer = window.setInterval(refreshLocal, 1000);
+        state.localTimer = window.setInterval(localPollTick, 1000);
         state.downstreamTimer = window.setInterval(refreshDownstream, 2000);
     }
 
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
-            updateCurrentTime();
-            refreshLocal();
-            refreshDownstream();
-            scheduleEchoLinkLookup();
+            resumeLivePolling();
         }
     });
+    window.addEventListener('focus', resumeLivePolling);
+    window.addEventListener('pageshow', resumeLivePolling);
+    window.addEventListener('online', resumeLivePolling);
 
     startClock();
     refreshFavorites();

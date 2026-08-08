@@ -143,6 +143,26 @@ html[data-theme="light"] .ac-card-title-row { background: linear-gradient(180deg
 .ac-title-with-count { gap: 9px; min-width: 0; }
 .ac-count { display: inline-grid; place-items: center; min-width: 24px; height: 21px; padding: 0 6px; color: #fff; background: #6b2fc2; border: 1px solid #844ddd; border-radius: 999px; font-size: 11px; }
 html[data-theme="light"] .ac-count { background: #1a73bd; border-color: #3188d0; }
+.ac-node-offline[hidden] { display: none !important; }
+.ac-node-offline {
+    display: inline-flex;
+    align-items: center;
+    min-height: 23px;
+    padding: 0 9px;
+    color: #ffffff;
+    background: #9f2d3a;
+    border: 1px solid #e05d69;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: .025em;
+    white-space: nowrap;
+}
+html[data-theme="light"] .ac-node-offline {
+    color: #8b1724;
+    background: #ffe5e8;
+    border-color: #c94451;
+}
 .ac-info-dot { display: grid; place-items: center; width: 20px; height: 20px; color: #d9e6f7; border: 1px solid #617896; border-radius: 50%; font-size: 12px; font-weight: 800; }
 .ac-icon-link,
 .ac-text-button,
@@ -1144,7 +1164,9 @@ html[data-theme="light"] .ac-favorite-page-form textarea {
 }
 .ac-favorites-table { width: 100%; border-collapse: collapse; }
 .ac-favorites-table th,
-.ac-favorites-table td { padding: 10px 12px; border-bottom: 1px solid var(--ac-border); text-align: left; vertical-align: middle; }
+.ac-favorites-table td { padding: 10px 12px; text-align: left; vertical-align: middle; }
+.ac-favorites-table thead tr { border-bottom: 1px solid var(--ac-border); }
+.ac-favorites-table tbody tr { border-bottom: 1px solid var(--ac-border); }
 .ac-favorites-table th {
     position: sticky;
     top: 0;
@@ -1171,6 +1193,15 @@ html[data-theme="light"] .ac-favorites-table tbody tr:nth-child(odd) {
 }
 html[data-theme="light"] .ac-favorites-table tbody tr:nth-child(even) {
     background: #f4f8fb;
+}
+.ac-favorites-table tbody tr[data-network] > td {
+    transition: background-color .15s ease;
+}
+.ac-favorites-table tbody tr[data-network]:hover > td {
+    background: rgba(92,169,255,.08);
+}
+html[data-theme="light"] .ac-favorites-table tbody tr[data-network]:hover > td {
+    background: #eef6ff;
 }
 
 .ac-favorite-row-edit { padding: 0; color: #75b5ff; background: transparent; border: 0; font-weight: 850; }
@@ -1335,7 +1366,6 @@ html[data-theme="light"] .ac-favorite-table-actions > .ac-small-button.is-danger
 
     .ac-favorites-table tr {
         padding: 10px;
-        border-bottom: 1px solid var(--ac-border);
     }
 
     .ac-favorites-table td {
