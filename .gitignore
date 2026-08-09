@@ -1,5 +1,6 @@
 config.ini
 data/favorites.txt
+data/dtmf_favorites.txt
 /cache/
 /run/
 /logs/

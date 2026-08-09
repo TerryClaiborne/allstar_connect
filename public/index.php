@@ -63,6 +63,7 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
      data-control-endpoint="/allstar_connect/api/control.php"
      data-link-endpoint="/allstar_connect/api/link.php"
      data-favorites-endpoint="/allstar_connect/api/favorites.php"
+     data-dtmf-favorites-endpoint="/allstar_connect/api/dtmf_favorites.php"
      data-identity-endpoint="/allstar_connect/api/identity.php"
      data-csrf-token="<?= e($csrfToken) ?>"
      data-can-write="<?= $canWrite ? '1' : '0' ?>">
@@ -163,6 +164,14 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                         <div class="ac-dtmf-control">
                             <label for="dtmf-code">DTMF</label>
                             <input id="dtmf-code" type="text" inputmode="tel" maxlength="14" placeholder="*70 or 1234#" <?= $canWrite ? '' : 'disabled' ?>>
+                            <button
+                                id="dtmf-favorites-button"
+                                class="ac-dtmf-favorites-button"
+                                type="button"
+                                aria-haspopup="dialog"
+                                aria-controls="allstar-connect-dtmf-favorites-modal"
+                                <?= $canWrite ? '' : 'disabled' ?>
+                            >★ Favorites</button>
                             <button id="send-dtmf-button" type="button" disabled>Send</button>
                         </div>
                         <div class="ac-control-status" id="allstar-connect-control-status" role="status" aria-live="polite">Ready</div>
@@ -444,6 +453,34 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                 <div class="ac-favorite-dialog-actions">
                     <button type="button" class="ac-secondary-button" id="allstar-connect-favorite-cancel">Cancel</button>
                     <button type="button" class="ac-primary-button" id="allstar-connect-favorite-save" <?= $canWrite ? '' : 'disabled' ?>>Save Favorite</button>
+                </div>
+            </div>
+        </section>
+    </div>
+
+
+    <div class="ac-favorite-modal-backdrop ac-dtmf-favorites-modal" id="allstar-connect-dtmf-favorites-modal" hidden aria-hidden="true">
+        <section class="ac-favorite-modal-card ac-dtmf-favorites-card" role="dialog" aria-modal="true" aria-labelledby="allstar-connect-dtmf-favorites-title">
+            <button type="button" id="allstar-connect-dtmf-favorites-close" class="ac-favorite-modal-close" aria-label="Close DTMF Favorites">×</button>
+            <h2 id="allstar-connect-dtmf-favorites-title">DTMF Favorites</h2>
+            <p class="ac-favorite-modal-help">Choose a saved command to place it in the DTMF line. Nothing is sent until you press Send.</p>
+
+            <div id="allstar-connect-dtmf-favorites-list" class="ac-dtmf-favorites-list"></div>
+
+            <div class="ac-dtmf-favorite-editor">
+                <div class="ac-dtmf-favorite-fields">
+                    <label>
+                        Name
+                        <input id="allstar-connect-dtmf-favorite-name" type="text" maxlength="64" autocomplete="off" placeholder="Example: Disconnect All">
+                    </label>
+                    <label>
+                        DTMF Command
+                        <input id="allstar-connect-dtmf-favorite-code" type="text" inputmode="tel" maxlength="14" autocomplete="off" placeholder="*70">
+                    </label>
+                </div>
+                <div class="ac-favorite-dialog-actions">
+                    <button type="button" class="ac-secondary-button" id="allstar-connect-dtmf-favorite-clear">Clear</button>
+                    <button type="button" class="ac-primary-button" id="allstar-connect-dtmf-favorite-save" <?= $canWrite ? '' : 'disabled' ?>>Add Favorite</button>
                 </div>
             </div>
         </section>

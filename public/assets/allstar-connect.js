@@ -12,6 +12,7 @@
     const controlEndpoint = String(page.dataset.controlEndpoint || '').trim();
     const linkEndpoint = String(page.dataset.linkEndpoint || '').trim();
     const favoritesEndpoint = String(page.dataset.favoritesEndpoint || '').trim();
+    const dtmfFavoritesEndpoint = String(page.dataset.dtmfFavoritesEndpoint || '').trim();
     const identityEndpoint = String(page.dataset.identityEndpoint || '').trim();
     const csrfToken = String(page.dataset.csrfToken || '').trim();
     const canWrite = String(page.dataset.canWrite || '') === '1';
@@ -90,6 +91,13 @@
         disconnectBeforeConnect: document.getElementById('disconnect_before_connect'),
         dtmfCode: document.getElementById('dtmf-code'),
         dtmfSend: document.getElementById('send-dtmf-button'),
+        dtmfFavoritesButton: document.getElementById('dtmf-favorites-button'),
+        dtmfFavoritesModal: document.getElementById('allstar-connect-dtmf-favorites-modal'),
+        dtmfFavoritesList: document.getElementById('allstar-connect-dtmf-favorites-list'),
+        dtmfFavoriteName: document.getElementById('allstar-connect-dtmf-favorite-name'),
+        dtmfFavoriteCode: document.getElementById('allstar-connect-dtmf-favorite-code'),
+        dtmfFavoriteSave: document.getElementById('allstar-connect-dtmf-favorite-save'),
+        dtmfFavoriteClear: document.getElementById('allstar-connect-dtmf-favorite-clear'),
         controlStatus: document.getElementById('allstar-connect-control-status'),
         networkTabs: Array.from(document.querySelectorAll('[data-network]')),
         connectTarget: document.getElementById('connect-target'),
@@ -143,6 +151,8 @@
         echoLinkEntries: {},
         selectedNetwork: 'ASL',
         favorites: [],
+        dtmfFavorites: [],
+        dtmfFavoriteEditCode: '',
         pendingActions: new Set(),
         pendingDisconnectUntil: new Map(),
         completedDisconnects: new Set(),
@@ -206,12 +216,191 @@
             });
             const payload = await response.json();
             if (!response.ok || !payload?.ok) throw new Error(payload?.message || 'DTMF send failed.');
+            const savedDtmf = state.dtmfFavorites.find(
+                (item) => sanitizeDtmf(item?.code) === code
+            );
+            const savedDtmfName = String(savedDtmf?.name || '').trim();
+
             elements.dtmfCode.value = '';
-            setControlStatus(`DTMF sent: ${code}`);
+            setControlStatus(
+                savedDtmfName && savedDtmfName !== code
+                    ? `DTMF sent: ${code} — ${savedDtmfName}`
+                    : `DTMF sent: ${code}`
+            );
         } catch (error) {
             setControlStatus(error?.message || 'DTMF send failed.', true);
         } finally {
             syncDtmfControl();
+        }
+    }
+
+
+    function normalizeDtmfFavorite(item) {
+        return {
+            code: sanitizeDtmf(item?.code),
+            name: String(item?.name || '').trim(),
+        };
+    }
+
+    function resetDtmfFavoriteEditor() {
+        state.dtmfFavoriteEditCode = '';
+        if (elements.dtmfFavoriteName) elements.dtmfFavoriteName.value = '';
+        if (elements.dtmfFavoriteCode) elements.dtmfFavoriteCode.value = '';
+        if (elements.dtmfFavoriteSave) {
+            elements.dtmfFavoriteSave.textContent = 'Add Favorite';
+            elements.dtmfFavoriteSave.disabled = !canWrite;
+        }
+    }
+
+    function renderDtmfFavorites() {
+        if (!elements.dtmfFavoritesList) return;
+
+        const items = state.dtmfFavorites
+            .map(normalizeDtmfFavorite)
+            .filter((item) => item.code)
+            .sort((a, b) => {
+                const an = (a.name || a.code).toLowerCase();
+                const bn = (b.name || b.code).toLowerCase();
+                return an.localeCompare(bn) || a.code.localeCompare(b.code);
+            });
+
+        if (!items.length) {
+            elements.dtmfFavoritesList.innerHTML = `
+                <div class="ac-dtmf-favorites-empty">
+                    <strong>No DTMF Favorites saved yet</strong>
+                    <span>Add a name and command below.</span>
+                </div>`;
+            return;
+        }
+
+        elements.dtmfFavoritesList.innerHTML = items.map((item) => {
+            const label = item.name || item.code;
+            return `
+                <div class="ac-dtmf-favorite-row">
+                    <div class="ac-dtmf-favorite-info">
+                        <strong>${escapeHtml(label)}</strong>
+                        <span>${escapeHtml(item.code)}</span>
+                    </div>
+                    <button type="button" class="ac-dtmf-favorite-row-action is-load" data-dtmf-select="${escapeHtml(item.code)}">Load</button>
+                    <button type="button" class="ac-dtmf-favorite-row-action" data-dtmf-edit="${escapeHtml(item.code)}">Edit</button>
+                    <button type="button" class="ac-dtmf-favorite-row-action is-danger" data-dtmf-delete="${escapeHtml(item.code)}">Remove</button>
+                </div>`;
+        }).join('');
+    }
+
+    async function refreshDtmfFavorites() {
+        if (!dtmfFavoritesEndpoint) return;
+        try {
+            const response = await fetch(`${dtmfFavoritesEndpoint}?_=${Date.now()}`, {
+                cache: 'no-store',
+                credentials: 'same-origin',
+            });
+            const payload = await response.json();
+            if (!response.ok || !payload?.ok) {
+                throw new Error(payload?.message || 'Unable to load DTMF Favorites.');
+            }
+            state.dtmfFavorites = Array.isArray(payload.favorites) ? payload.favorites : [];
+            renderDtmfFavorites();
+        } catch (error) {
+            setControlStatus(error?.message || 'Unable to load DTMF Favorites.', true);
+        }
+    }
+
+    async function postDtmfFavorite(payload) {
+        if (!dtmfFavoritesEndpoint) throw new Error('DTMF Favorites API is unavailable.');
+        const response = await fetch(dtmfFavoritesEndpoint, {
+            method: 'POST',
+            cache: 'no-store',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken,
+            },
+            body: JSON.stringify(payload),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result?.ok) {
+            throw new Error(result?.message || 'DTMF Favorite action failed.');
+        }
+        state.dtmfFavorites = Array.isArray(result.favorites) ? result.favorites : state.dtmfFavorites;
+        renderDtmfFavorites();
+        return result;
+    }
+
+    function openDtmfFavoritesModal() {
+        if (!canWrite || !elements.dtmfFavoritesModal) return;
+        resetDtmfFavoriteEditor();
+        elements.dtmfFavoritesModal.hidden = false;
+        elements.dtmfFavoritesModal.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('ac-modal-open');
+        renderDtmfFavorites();
+        refreshDtmfFavorites();
+    }
+
+    function closeDtmfFavoritesModal() {
+        if (!elements.dtmfFavoritesModal) return;
+        elements.dtmfFavoritesModal.hidden = true;
+        elements.dtmfFavoritesModal.setAttribute('aria-hidden', 'true');
+        resetDtmfFavoriteEditor();
+        if (!elements.favoriteModal || elements.favoriteModal.hidden) {
+            document.body.classList.remove('ac-modal-open');
+        }
+    }
+
+    function selectDtmfFavorite(code) {
+        const clean = sanitizeDtmf(code);
+        if (!clean || !elements.dtmfCode) return;
+        elements.dtmfCode.value = clean;
+        syncDtmfControl();
+        closeDtmfFavoritesModal();
+        elements.dtmfCode.focus();
+    }
+
+    function editDtmfFavorite(code) {
+        const clean = sanitizeDtmf(code);
+        const item = state.dtmfFavorites.find((favorite) => sanitizeDtmf(favorite?.code) === clean);
+        if (!item) return;
+
+        state.dtmfFavoriteEditCode = clean;
+        if (elements.dtmfFavoriteName) elements.dtmfFavoriteName.value = String(item.name || '');
+        if (elements.dtmfFavoriteCode) elements.dtmfFavoriteCode.value = clean;
+        if (elements.dtmfFavoriteSave) {
+            elements.dtmfFavoriteSave.textContent = 'Update Favorite';
+            elements.dtmfFavoriteSave.disabled = !canWrite;
+        }
+        elements.dtmfFavoriteName?.focus();
+    }
+
+    async function saveDtmfFavorite() {
+        if (!canWrite || !elements.dtmfFavoriteSave) return;
+
+        const rawCode = String(elements.dtmfFavoriteCode?.value || '');
+        const code = sanitizeDtmf(rawCode);
+        const name = String(elements.dtmfFavoriteName?.value || '').trim();
+
+        if (elements.dtmfFavoriteCode && elements.dtmfFavoriteCode.value !== code) {
+            elements.dtmfFavoriteCode.value = code;
+        }
+        if (!code) {
+            setControlStatus('Enter a DTMF command before saving.', true);
+            elements.dtmfFavoriteCode?.focus();
+            return;
+        }
+
+        elements.dtmfFavoriteSave.disabled = true;
+        try {
+            const result = await postDtmfFavorite({
+                action: 'save',
+                original_code: state.dtmfFavoriteEditCode,
+                code,
+                name,
+            });
+            setControlStatus(result.message || 'DTMF Favorite saved.');
+            resetDtmfFavoriteEditor();
+        } catch (error) {
+            setControlStatus(error?.message || 'Unable to save DTMF Favorite.', true);
+        } finally {
+            elements.dtmfFavoriteSave.disabled = !canWrite;
         }
     }
 
@@ -223,7 +412,58 @@
         });
     }
     elements.dtmfSend?.addEventListener('click', sendDtmf);
+    elements.dtmfFavoritesButton?.addEventListener('click', openDtmfFavoritesModal);
+    document.getElementById('allstar-connect-dtmf-favorites-close')?.addEventListener('click', closeDtmfFavoritesModal);
+    elements.dtmfFavoriteClear?.addEventListener('click', resetDtmfFavoriteEditor);
+    elements.dtmfFavoriteSave?.addEventListener('click', saveDtmfFavorite);
+
+    elements.dtmfFavoriteCode?.addEventListener('input', () => {
+        const clean = sanitizeDtmf(elements.dtmfFavoriteCode.value);
+        if (elements.dtmfFavoriteCode.value !== clean) elements.dtmfFavoriteCode.value = clean;
+    });
+
+    elements.dtmfFavoritesList?.addEventListener('click', async (event) => {
+        const select = event.target.closest('[data-dtmf-select]');
+        if (select) {
+            selectDtmfFavorite(String(select.dataset.dtmfSelect || ''));
+            return;
+        }
+
+        const edit = event.target.closest('[data-dtmf-edit]');
+        if (edit) {
+            editDtmfFavorite(String(edit.dataset.dtmfEdit || ''));
+            return;
+        }
+
+        const remove = event.target.closest('[data-dtmf-delete]');
+        if (remove) {
+            const code = sanitizeDtmf(remove.dataset.dtmfDelete || '');
+            const item = state.dtmfFavorites.find((favorite) => sanitizeDtmf(favorite?.code) === code);
+            const label = String(item?.name || code);
+            if (!code || !window.confirm(`Remove DTMF Favorite "${label}"?`)) return;
+
+            try {
+                const result = await postDtmfFavorite({ action: 'delete', code });
+                setControlStatus(result.message || 'DTMF Favorite removed.');
+                if (state.dtmfFavoriteEditCode === code) resetDtmfFavoriteEditor();
+            } catch (error) {
+                setControlStatus(error?.message || 'Unable to remove DTMF Favorite.', true);
+            }
+        }
+    });
+
+    elements.dtmfFavoritesModal?.addEventListener('click', (event) => {
+        if (event.target === elements.dtmfFavoritesModal) closeDtmfFavoritesModal();
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && elements.dtmfFavoritesModal && !elements.dtmfFavoritesModal.hidden) {
+            closeDtmfFavoritesModal();
+        }
+    });
+
     syncDtmfControl();
+    refreshDtmfFavorites();
 
     function normalizeNetworkCode(value) {
         const normalized = String(value || '').trim().toUpperCase();
@@ -3221,7 +3461,6 @@
             return;
         }
 
-        const hidden = Number(summary.hidden || 0);
         if (!state.downstreamDirect.length) {
             elements.downstreamNote.textContent = localClientCount > 0
                 ? `${localClientCount} ${localClientCount === 1 ? 'client' : 'clients'} · no public tree`
@@ -3240,7 +3479,7 @@
                 ? (cache.pending > 0 ? `Scanning · ${cache.pending} queued` : 'Finishing scan')
                 : 'Waiting for first cached result';
         } else {
-            statusText = hidden > 0 ? `Tree ready · ${hidden} filtered` : 'Tree ready';
+            statusText = 'Tree ready';
         }
 
         elements.downstreamNote.textContent = `${selectedText} · ${statusText}${searchText}`;

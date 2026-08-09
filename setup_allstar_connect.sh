@@ -7,6 +7,8 @@ WEB_GROUP="www-data"
 CONFIG_FILE="$APP_DIR/config.ini"
 CONFIG_EXAMPLE="$APP_DIR/config.ini.example"
 FAVORITES_FILE="$APP_DIR/data/favorites.txt"
+DTMF_FAVORITES_FILE="$APP_DIR/data/dtmf_favorites.txt"
+DTMF_FAVORITES_EXAMPLE="$APP_DIR/data/dtmf_favorites.example.txt"
 HELPER="$APP_DIR/bin/allstar-connect-read.sh"
 CONTROL_HELPER="$APP_DIR/bin/allstar-connect-control.sh"
 SUDOERS_FILE="/etc/sudoers.d/allstar-connect-read"
@@ -31,8 +33,7 @@ Usage:
   sudo $APP_DIR/setup_allstar_connect.sh --disable-auth
 
 Normal setup installs or updates permissions, helpers, Apache protection,
-access-log filtering, and log rotation. Existing config.ini and
-favorites.txt contents are preserved.
+access-log filtering, and log rotation. Existing config.ini, favorites.txt, and dtmf_favorites.txt contents are preserved.
 USAGE
     exit 0
     ;;
@@ -47,6 +48,7 @@ fail() {
 [[ ${EUID:-$(id -u)} -eq 0 ]] || fail "Run this installer with sudo or as root."
 [[ -d "$APP_DIR" ]] || fail "Missing application directory: $APP_DIR"
 [[ -f "$CONFIG_EXAMPLE" ]] || fail "Missing $CONFIG_EXAMPLE"
+[[ -f "$DTMF_FAVORITES_EXAMPLE" ]] || fail "Missing $DTMF_FAVORITES_EXAMPLE"
 
 get_key() {
   local key="$1" file="$2"
@@ -230,6 +232,7 @@ fi
 preserve_dir="$(mktemp -d)"
 had_config=0
 had_favorites=0
+had_dtmf_favorites=0
 apache_sites_backup=""
 apache_conf_backup=""
 if [[ -f "$CONFIG_FILE" ]]; then
@@ -239,6 +242,10 @@ fi
 if [[ -f "$FAVORITES_FILE" ]]; then
   cp -a "$FAVORITES_FILE" "$preserve_dir/favorites.txt"
   had_favorites=1
+fi
+if [[ -f "$DTMF_FAVORITES_FILE" ]]; then
+  cp -a "$DTMF_FAVORITES_FILE" "$preserve_dir/dtmf_favorites.txt"
+  had_dtmf_favorites=1
 fi
 
 restore_preserved_local_files() {
@@ -257,6 +264,15 @@ restore_preserved_local_files() {
     fi
   else
     rm -f "$FAVORITES_FILE"
+  fi
+
+  if [[ "$had_dtmf_favorites" == "1" ]]; then
+    if [[ ! -f "$DTMF_FAVORITES_FILE" ]] || ! cmp -s "$preserve_dir/dtmf_favorites.txt" "$DTMF_FAVORITES_FILE"; then
+      install -d -o www-data -g www-data -m 0750 "$(dirname "$DTMF_FAVORITES_FILE")"
+      install -o www-data -g www-data -m 0640 "$preserve_dir/dtmf_favorites.txt" "$DTMF_FAVORITES_FILE"
+    fi
+  else
+    rm -f "$DTMF_FAVORITES_FILE"
   fi
 }
 
@@ -313,12 +329,18 @@ find "$APP_DIR/run" "$APP_DIR/cache" -type d -exec chown www-data:www-data {} + 
 find "$APP_DIR/run" "$APP_DIR/cache" -type f -exec chown www-data:www-data {} + -exec chmod 0640 {} + 2>/dev/null || true
 
 # Keep tracked examples read-only while Favorites remains writable.
-find "$APP_DIR/data" -maxdepth 1 -type f ! -name 'favorites.txt' -exec chown root:root {} + -exec chmod 0644 {} +
+find "$APP_DIR/data" -maxdepth 1 -type f ! -name 'favorites.txt' ! -name 'dtmf_favorites.txt' -exec chown root:root {} + -exec chmod 0644 {} +
 if [[ ! -f "$FAVORITES_FILE" ]]; then
   install -o www-data -g www-data -m 0640 /dev/null "$FAVORITES_FILE"
 else
   chown www-data:www-data "$FAVORITES_FILE"
   chmod 0640 "$FAVORITES_FILE"
+fi
+if [[ ! -f "$DTMF_FAVORITES_FILE" ]]; then
+  install -o www-data -g www-data -m 0640 "$DTMF_FAVORITES_EXAMPLE" "$DTMF_FAVORITES_FILE"
+else
+  chown www-data:www-data "$DTMF_FAVORITES_FILE"
+  chmod 0640 "$DTMF_FAVORITES_FILE"
 fi
 chown root:"$WEB_GROUP" "$CONFIG_FILE"
 chmod 0640 "$CONFIG_FILE"
@@ -525,6 +547,10 @@ fi
 if [[ "$had_favorites" == "1" ]] && ! cmp -s "$preserve_dir/favorites.txt" "$FAVORITES_FILE"; then
   install -o www-data -g www-data -m 0640 "$preserve_dir/favorites.txt" "$FAVORITES_FILE"
   fail "favorites.txt changed unexpectedly and was restored."
+fi
+if [[ "$had_dtmf_favorites" == "1" ]] && ! cmp -s "$preserve_dir/dtmf_favorites.txt" "$DTMF_FAVORITES_FILE"; then
+  install -o www-data -g www-data -m 0640 "$preserve_dir/dtmf_favorites.txt" "$DTMF_FAVORITES_FILE"
+  fail "dtmf_favorites.txt changed unexpectedly and was restored."
 fi
 
 for writable in "$APP_DIR/run" "$APP_DIR/cache" "$APP_DIR/cache/stats" "$APP_DIR/cache/echolink" "$APP_DIR/data" "$LOG_DIR"; do
