@@ -14,15 +14,15 @@ final class Downstream
     private const LOCK_FILE = '/run/downstream.lock';
     private const NODE_CACHE_DIR = '/cache/stats';
     private const REFRESH_SECONDS = 30;
+    private const SMALL_TOPOLOGY_MAX_NODES = 12;
     private const NODE_CACHE_SECONDS = 180;
     private const STALE_FALLBACK_SECONDS = 21600;
-    private const FAILURE_RETRY_SECONDS = 90;
     private const MAX_NODE_FAILURES = 3;
     private const API_TIMEOUT_SECONDS = 1.2;
     private const PEER_STATUS_TIMEOUT_SECONDS = 1.0;
     private const MAX_CACHED_QUEUE_STEPS_PER_REQUEST = 30;
     private const MAX_NETWORK_READS_PER_REQUEST = 1;
-    private const SCAN_VERSION = 6;
+    private const SCAN_VERSION = 7;
 
     public function __construct(private Config $config)
     {
@@ -38,7 +38,6 @@ final class Downstream
         $signature = $this->directSignature($direct);
         $state = $this->readJson($statePath) ?? $this->newState($signature, $direct, true);
         if (($state['signature'] ?? '') !== $signature) {
-            $retryAt = trim((string) ($state['retry_at'] ?? ''));
             $previousRows = [];
             foreach (array_merge(
                 array_values(array_filter($state['display_nodes'] ?? [], 'is_array')),
@@ -78,9 +77,6 @@ final class Downstream
                 }
             }
 
-            if ($retryAt !== '') {
-                $state['retry_at'] = $retryAt;
-            }
         } else {
             $state['direct'] = $direct;
         }
@@ -102,28 +98,17 @@ final class Downstream
                 CacheMaintenance::clearStats($root);
             }
             if ($direct === []) {
-                $retryAt = trim((string) ($state['retry_at'] ?? ''));
                 $state = $this->newState($signature, []);
-                if ($retryAt !== '') {
-                    $state['retry_at'] = $retryAt;
-                }
                 $state['display_updated_at'] = gmdate('c');
                 $this->writeJson($statePath, $state);
                 return $this->response($state, false);
-            }
-
-            $retryValue = trim((string) ($state['retry_at'] ?? ''));
-            $retryAt = $retryValue !== '' ? strtotime($retryValue) : false;
-            $retryDeferred = $retryAt !== false && $retryAt > time();
-            if (!$retryDeferred && $retryValue !== '') {
-                unset($state['retry_at']);
             }
 
             if (!$this->hasActiveScan($state) && $this->needsRefresh($state)) {
                 $state['scan'] = $this->newScan($direct);
             }
 
-            if ($this->hasActiveScan($state) && !$retryDeferred) {
+            if ($this->hasActiveScan($state)) {
                 $state = $this->advanceScan($root, $state, $localNode);
             }
 
@@ -227,10 +212,23 @@ final class Downstream
         return isset($state['scan']) && is_array($state['scan']);
     }
 
+    private function isSmallTopology(array $state): bool
+    {
+        $count = 0;
+        foreach (($state['display_nodes'] ?? []) as $item) {
+            if (is_array($item)
+                && strtolower((string) ($item['kind'] ?? 'asl')) === 'asl') {
+                $count++;
+            }
+        }
+        return $count > 0 && $count <= self::SMALL_TOPOLOGY_MAX_NODES;
+    }
+
     private function needsRefresh(array $state): bool
     {
         $updated = strtotime((string) ($state['display_updated_at'] ?? ''));
-        return $updated === false || (time() - $updated) >= self::REFRESH_SECONDS;
+        return $updated === false
+            || (time() - $updated) >= self::REFRESH_SECONDS;
     }
 
     private function advanceScan(string $root, array $state, string $localNode): array
@@ -241,6 +239,18 @@ final class Downstream
             $node = $this->digits((string) ($item['node'] ?? ''));
             if ($node !== '') {
                 $directNodeSet[$node] = true;
+            }
+        }
+
+        $smallTopology = $this->isSmallTopology($state);
+        $refreshParents = [];
+        foreach (($state['display_nodes'] ?? []) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $parent = $this->digits((string) ($item['parent_node'] ?? ''));
+            if ($parent !== '') {
+                $refreshParents[$parent] = true;
             }
         }
 
@@ -268,37 +278,50 @@ final class Downstream
             $isDirectRoot = $depth === 1
                 && $node === (string) ($current['direct_node'] ?? '')
                 && trim((string) ($current['parent_node'] ?? '')) === '';
-            $forceRefresh = $isDirectRoot && !empty($current['force_refresh']);
+            $forceRefresh = ($isDirectRoot && !empty($current['force_refresh']))
+                || $smallTopology
+                || isset($refreshParents[$node]);
+            $freshFetch = false;
 
-            if (!$forceRefresh && $cache !== null && $cache['age'] <= self::STALE_FALLBACK_SECONDS) {
+            if (!$forceRefresh
+                && $cache !== null
+                && $cache['age'] <= self::NODE_CACHE_SECONDS) {
                 $data = $cache['data'];
-                $usedStale = $cache['age'] > self::NODE_CACHE_SECONDS;
             } elseif ($networkReads < self::MAX_NETWORK_READS_PER_REQUEST) {
                 $networkReads++;
                 $scan['api_reads'] = (int) ($scan['api_reads'] ?? 0) + 1;
                 $fetched = $this->fetchStats($node);
-                if ($fetched !== null) {
+                $topology = is_array($fetched)
+                    ? ($fetched['stats']['data'] ?? null)
+                    : null;
+                $validFresh = is_array($topology)
+                    && (
+                        (array_key_exists('linkedNodes', $topology)
+                            && is_array($topology['linkedNodes']))
+                        || (array_key_exists('links', $topology)
+                            && is_array($topology['links']))
+                    );
+
+                if ($validFresh) {
                     $data = $fetched;
+                    $freshFetch = true;
                     $this->writeNodeCache($root, $node, $fetched);
-                    unset($state['retry_at']);
                 } else {
+                    $scan['failures'] = (int) ($scan['failures'] ?? 0) + 1;
+
                     if ($cache !== null && $cache['age'] <= self::STALE_FALLBACK_SECONDS) {
-                        $state['retry_at'] = gmdate('c', time() + self::FAILURE_RETRY_SECONDS);
                         $data = $cache['data'];
                         $usedStale = true;
                     } else {
                         $failedAttempts = (int) ($current['failed_attempts'] ?? 0) + 1;
-                        $scan['failures'] = (int) ($scan['failures'] ?? 0) + 1;
 
                         if ($failedAttempts < self::MAX_NODE_FAILURES) {
                             $current['failed_attempts'] = $failedAttempts;
                             array_shift($scan['queue']);
                             $scan['queue'][] = $current;
-                            unset($state['retry_at']);
                             continue;
                         }
 
-                        unset($state['retry_at']);
                         array_shift($scan['queue']);
                         $scan['visited'][$visitKey] = true;
                         continue;
@@ -331,6 +354,18 @@ final class Downstream
                 $directNodeSet
             );
             $scan['hidden'] = (int) ($scan['hidden'] ?? 0) + $parsed['hidden'];
+
+            if ($freshFetch) {
+                $state['display_nodes'] = $this->pruneFreshBranch(
+                    array_values(array_filter(
+                        $state['display_nodes'] ?? [],
+                        'is_array'
+                    )),
+                    $parsed['nodes'],
+                    (string) ($current['direct_node'] ?? ''),
+                    $node
+                );
+            }
 
             foreach ($parsed['nodes'] as $child) {
                 $this->addWorkingNode($scan['working_nodes'], $child);
@@ -377,6 +412,81 @@ final class Downstream
         }
 
         return $state;
+    }
+
+    private function pruneFreshBranch(
+        array $display,
+        array $freshNodes,
+        string $directNode,
+        string $sourceNode
+    ): array {
+        $fresh = [];
+        foreach ($freshNodes as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $node = trim((string) ($item['node'] ?? ''));
+            if ($node === '') {
+                continue;
+            }
+            $kind = strtolower((string) ($item['kind'] ?? 'asl'));
+            $fresh[$kind . ':' . $node] = true;
+        }
+
+        $removed = [];
+        $kept = [];
+
+        foreach ($display as $item) {
+            $sameParent = (string) ($item['direct_node'] ?? '') === $directNode
+                && (string) ($item['parent_node'] ?? '') === $sourceNode;
+
+            if (!$sameParent) {
+                $kept[] = $item;
+                continue;
+            }
+
+            $kind = strtolower((string) ($item['kind'] ?? 'asl'));
+            $node = trim((string) ($item['node'] ?? ''));
+
+            if ($node !== '' && isset($fresh[$kind . ':' . $node])) {
+                $kept[] = $item;
+                continue;
+            }
+
+            if ($kind === 'asl') {
+                $node = $this->digits($node);
+                if ($node !== '') {
+                    $removed[$node] = true;
+                }
+            }
+        }
+
+        do {
+            $added = false;
+            $next = [];
+
+            foreach ($kept as $item) {
+                $sameDirect = (string) ($item['direct_node'] ?? '') === $directNode;
+                $parent = $this->digits((string) ($item['parent_node'] ?? ''));
+
+                if (!$sameDirect || $parent === '' || !isset($removed[$parent])) {
+                    $next[] = $item;
+                    continue;
+                }
+
+                if (strtolower((string) ($item['kind'] ?? 'asl')) === 'asl') {
+                    $child = $this->digits((string) ($item['node'] ?? ''));
+                    if ($child !== '' && !isset($removed[$child])) {
+                        $removed[$child] = true;
+                        $added = true;
+                    }
+                }
+            }
+
+            $kept = $next;
+        } while ($added);
+
+        return $kept;
     }
 
     private function readNodeCache(string $root, string $node): ?array
