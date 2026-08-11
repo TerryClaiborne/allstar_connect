@@ -3664,8 +3664,11 @@
             state.scrollDownstreamOnRender = false;
         }
         if (!state.selectedKey && connections.length) {
-            state.selectedKey = connections[0].key;
-            state.selectedType = 'current';
+            const nextConnection = connections.find((item) => !pendingDisconnectActive(item));
+            if (nextConnection) {
+                state.selectedKey = nextConnection.key;
+                state.selectedType = 'current';
+            }
         }
 
         renderActivity();
