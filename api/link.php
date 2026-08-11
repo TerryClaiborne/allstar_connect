@@ -378,6 +378,24 @@ function wait_client_gone(string $myNode, string $client, float $timeout = 2.5):
     return !in_array($client, live_link_names($myNode), true);
 }
 
+function wait_link_established(string $myNode, string $target, float $timeout = 8.0): bool
+{
+    $deadline = microtime(true) + $timeout;
+    do {
+        $result = helper_run(['rpt-lstats', $myNode], 6);
+        if (helper_success($result)) {
+            foreach (preg_split('/\R/', (string) $result['output']) ?: [] as $line) {
+                $parts = preg_split('/\s+/', trim((string) $line)) ?: [];
+                if (($parts[0] ?? '') === $target && in_array('ESTABLISHED', $parts, true)) {
+                    return true;
+                }
+            }
+        }
+        pause_seconds(0.2);
+    } while (microtime(true) < $deadline);
+    return false;
+}
+
 if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? '')) !== 'POST') {
     respond(['ok' => false, 'message' => 'POST required.'], 405);
 }
@@ -410,7 +428,7 @@ try {
             respond(['ok' => false, 'message' => 'EchoLink targets must use the mapped 3xxxxxx node number.'], 422);
         }
         if ($network === 'ECHO' && !echolink_node_exists($target)) {
-            respond(['ok' => false, 'message' => 'EchoLink node was not found in the active EchoLink database.'], 404);
+            respond(['ok' => false, 'message' => 'EchoLink station is not currently online and cannot be connected.'], 404);
         }
 
         if ($disconnectBefore) {
@@ -457,8 +475,8 @@ try {
         if (!ilink($myNode, $code, $target)) {
             respond(['ok' => false, 'message' => 'Asterisk did not accept the connect command.'], 500);
         }
-        if ($network !== 'ECHO') {
-            pause_seconds(NORMAL_LINK_SETTLE_SECONDS);
+        if ($network !== 'ECHO' && !wait_link_established($myNode, $target)) {
+            respond(['ok' => false, 'message' => 'AllStarLink node is not currently online and cannot be connected.'], 404);
         }
         track_started_link($target, $network, $mode);
         respond([

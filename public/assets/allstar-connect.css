@@ -344,16 +344,16 @@ html[data-theme="light"] .ac-card-divider { background: #c7d5e2; }
     white-space: nowrap;
 }
 .ac-system-pill > span {
-    color: #7fa9c9;
+    color: #a9c7df;
     font-size: 9px;
-    font-weight: 400;
+    font-weight: 650;
     letter-spacing: .01em;
     text-transform: uppercase;
 }
 .ac-system-pill > strong {
-    color: #f3c969;
+    color: #ffd12f;
     font-size: 9px;
-    font-weight: 500;
+    font-weight: 750;
     letter-spacing: 0;
     font-variant-numeric: tabular-nums;
 }
@@ -1683,7 +1683,7 @@ html[data-theme="dark"] .ac-downstream-footer,
 html[data-theme="dark"] .ac-detail-list dt,
 html[data-theme="dark"] .ac-detail-description,
 html[data-theme="dark"] .allstar-connect-activity-main span,
-html[data-theme="dark"] .ac-control-status { color: #d5ddea; }
+html[data-theme="dark"] .ac-control-status:not(.is-error) { color: #d5ddea; }
 html[data-theme="light"] .ac-card-title-row p,
 html[data-theme="light"] .ac-section-note,
 html[data-theme="light"] .ac-empty-inline span,

@@ -1586,8 +1586,23 @@
     });
     elements.connectTarget?.addEventListener('blur', normalizeEchoLinkNumericInput);
     elements.connectTarget?.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            state.callsignLookupController?.abort();
+            closeCallsignResults();
+            elements.connectTarget.value = '';
+            syncConnectControls();
+            scheduleManualFavoritePrefill();
+            return;
+        }
+
         if (event.key === 'Enter') {
             event.preventDefault();
+            const entry = cleanConnectEntry(elements.connectTarget.value, state.selectedNetwork);
+            if (/[A-Z]/i.test(entry) && elements.connectCallsignSearch && !elements.connectCallsignSearch.disabled) {
+                elements.connectCallsignSearch.click();
+                return;
+            }
             connectSelectedTarget();
         }
     });
@@ -1603,6 +1618,19 @@
                 true
             );
         }
+    });
+
+    elements.connectCallsignSearch?.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        state.callsignLookupController?.abort();
+        closeCallsignResults();
+        if (elements.connectTarget) {
+            elements.connectTarget.value = '';
+            elements.connectTarget.focus();
+        }
+        syncConnectControls();
+        scheduleManualFavoritePrefill();
     });
 
     elements.connectCallsignResults?.addEventListener('click', (event) => {
