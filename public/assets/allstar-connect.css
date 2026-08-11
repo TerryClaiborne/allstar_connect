@@ -233,10 +233,23 @@ html[data-theme="light"] .ac-field input:focus,
 html[data-theme="light"] .ac-field select:focus,
 html[data-theme="light"] .ac-compact-field select:focus,
 html[data-theme="light"] .ac-downstream-search input:focus { border-color: #1976c3; box-shadow: 0 0 0 2px rgba(25,118,195,.14); }
-.ac-input-with-action { display: grid; grid-template-columns: 1fr 39px; }
-.ac-input-with-action input { border-radius: 6px 0 0 6px; }
-.ac-inline-star { color: #ffcf2e; background: #0c172a; border: 1px solid #2c4263; border-left: 0; border-radius: 0 6px 6px 0; font-size: 21px; opacity: 1; }
+.ac-input-with-action { display: grid; grid-template-columns: minmax(0,1fr) auto auto; }
+.ac-input-with-action input { min-width: 0; border-radius: 6px 0 0 6px; }
+.ac-inline-search { width: 35px; color: var(--ac-text); background: #0c172a; border: 1px solid #2c4263; border-left: 0; border-radius: 0; opacity: 1; }
+.ac-inline-search svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.ac-inline-star { width: 39px; color: #ffcf2e; background: #0c172a; border: 1px solid #2c4263; border-left: 0; border-radius: 0 6px 6px 0; font-size: 21px; opacity: 1; }
+html[data-theme="light"] .ac-inline-search,
 html[data-theme="light"] .ac-inline-star { background: #f6f9fc; border-color: #aebfd1; }
+.ac-callsign-results { display: grid; gap: 4px; max-height: 220px; margin-top: 6px; padding: 5px; overflow-y: auto; background: #0c172a; border: 1px solid #2c4263; border-radius: 6px; }
+.ac-callsign-results[hidden] { display: none; }
+html[data-theme="light"] .ac-callsign-results { background: #f6f9fc; border-color: #aebfd1; }
+.ac-callsign-result { display: grid; gap: 2px; width: 100%; padding: 7px 8px; color: var(--ac-text); text-align: left; background: transparent; border: 1px solid transparent; border-radius: 4px; }
+.ac-callsign-result:hover,
+.ac-callsign-result:focus-visible { border-color: #7c50d7; background: rgba(122,77,219,.12); }
+html[data-theme="light"] .ac-callsign-result:hover,
+html[data-theme="light"] .ac-callsign-result:focus-visible { border-color: #1976c3; background: rgba(25,118,195,.09); }
+.ac-callsign-result strong { font-size: 13px; }
+.ac-callsign-result span { font-size: 11px; color: var(--ac-muted); }
 .ac-primary-button,
 .ac-secondary-button {
     display: inline-flex;

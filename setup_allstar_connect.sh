@@ -217,6 +217,53 @@ done
 [[ -x /usr/sbin/asterisk ]] || fail "Asterisk was not found at /usr/sbin/asterisk."
 id "$WEB_USER" >/dev/null 2>&1 || fail "Web user does not exist: $WEB_USER"
 
+# AllStar callsign search uses ASL3's own astdb.txt updater.
+# Keep this best-effort so a temporary package/network/systemd problem
+# never prevents the rest of AllStar Connect from installing.
+if ! command -v asl3-update-astdb >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y asl3-update-nodelist >/dev/null 2>&1; then
+      if DEBIAN_FRONTEND=noninteractive apt-get update >/dev/null 2>&1; then
+        DEBIAN_FRONTEND=noninteractive apt-get install -y asl3-update-nodelist >/dev/null 2>&1 \
+          || echo "[WARN] Unable to install asl3-update-nodelist; AllStar callsign search may be unavailable." >&2
+      else
+        echo "[WARN] Unable to refresh package metadata; AllStar callsign search may be unavailable." >&2
+      fi
+    fi
+  else
+    echo "[WARN] asl3-update-astdb is missing and apt-get is unavailable; AllStar callsign search may be unavailable." >&2
+  fi
+fi
+
+if command -v asl3-update-astdb >/dev/null 2>&1 \
+    && systemctl cat asl3-update-astdb.service >/dev/null 2>&1 \
+    && systemctl cat asl3-update-astdb.timer >/dev/null 2>&1; then
+
+  if ! systemctl is-enabled --quiet asl3-update-astdb.service; then
+    systemctl enable asl3-update-astdb.service >/dev/null 2>&1 \
+      || echo "[WARN] Unable to enable asl3-update-astdb.service." >&2
+  fi
+
+  if ! systemctl is-enabled --quiet asl3-update-astdb.timer; then
+    systemctl enable asl3-update-astdb.timer >/dev/null 2>&1 \
+      || echo "[WARN] Unable to enable asl3-update-astdb.timer." >&2
+  fi
+
+  if ! systemctl is-active --quiet asl3-update-astdb.timer; then
+    systemctl start asl3-update-astdb.timer >/dev/null 2>&1 \
+      || echo "[WARN] Unable to start asl3-update-astdb.timer." >&2
+  fi
+
+  if [[ ! -s /var/lib/asterisk/astdb.txt ]]; then
+    systemctl start asl3-update-astdb.service >/dev/null 2>&1 \
+      || echo "[WARN] Unable to create astdb.txt; AllStar callsign search may be unavailable." >&2
+  fi
+fi
+
+if [[ ! -s /var/lib/asterisk/astdb.txt ]]; then
+  echo "[WARN] /var/lib/asterisk/astdb.txt is missing or empty; AllStar callsign search will remain unavailable until ASL3 creates it." >&2
+fi
+
 while IFS= read -r php_file; do
   php -l "$php_file" >/dev/null || fail "PHP syntax failed: $php_file"
 done < <(find "$APP_DIR/app" "$APP_DIR/api" "$APP_DIR/public" "$APP_DIR/src" -type f -name '*.php' -print | sort)

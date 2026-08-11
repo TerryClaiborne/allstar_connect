@@ -101,6 +101,8 @@
         controlStatus: document.getElementById('allstar-connect-control-status'),
         networkTabs: Array.from(document.querySelectorAll('[data-network]')),
         connectTarget: document.getElementById('connect-target'),
+        connectCallsignSearch: document.getElementById('connect-callsign-search'),
+        connectCallsignResults: document.getElementById('allstar-connect-callsign-results'),
         connectMode: document.getElementById('connect-mode'),
         connectButton: document.getElementById('connect-button'),
         connectFavoriteStar: document.getElementById('connect-favorite-star'),
@@ -159,6 +161,7 @@
         connectionActionPointerActive: false,
         favoriteLookupTimer: 0,
         favoriteLookupController: null,
+        callsignLookupController: null,
         loadIdentityCache: new Map(),
         loadIdentityRequests: new Map(),
         favoriteEditorKey: '',
@@ -475,6 +478,24 @@
         return /^3\d{6}$/.test(cleanTarget) ? 'ECHO' : normalizeNetworkCode(network);
     }
 
+    function cleanAllStarEntry(value) {
+        return String(value || '')
+            .trim()
+            .toUpperCase()
+            .replace(/\s+/g, '')
+            .replace(/[^A-Z0-9_.\/-]/g, '');
+    }
+
+    function validAllStarIdentifier(value) {
+        const entry = cleanAllStarEntry(value);
+        return /^\d{1,7}$/.test(entry)
+            || (
+                entry.length <= 32
+                && /^[A-Z0-9_.\/-]+$/.test(entry)
+                && /[A-Z]/.test(entry)
+            );
+    }
+
     function cleanEchoLinkEntry(value) {
         return String(value || '')
             .trim()
@@ -505,7 +526,7 @@
     function cleanConnectEntry(value, network = state.selectedNetwork) {
         return normalizeNetworkCode(network) === 'ECHO'
             ? cleanEchoLinkEntry(value)
-            : String(value || '').replace(/\D/g, '');
+            : cleanAllStarEntry(value);
     }
 
     function networkDisplay(value) {
@@ -735,6 +756,178 @@
         }
     }
 
+    function closeCallsignResults() {
+        if (!elements.connectCallsignResults) return;
+        elements.connectCallsignResults.replaceChildren();
+        elements.connectCallsignResults.hidden = true;
+    }
+
+    function selectCallsignTarget(network, target, callsign = '') {
+        const networkCode = normalizeNetworkCode(network);
+        const cleanTarget = String(target || '').replace(/\D/g, '');
+
+        if (!validFavoriteTarget(networkCode, cleanTarget)) return '';
+
+        if (elements.connectTarget) {
+            elements.connectTarget.value = cleanTarget;
+        }
+
+        closeCallsignResults();
+        applySelectedNetwork(networkCode, cleanTarget, false);
+        scheduleManualFavoritePrefill(50);
+
+        if (callsign) {
+            setControlStatus(
+                `Selected ${callsign} — ${networkDisplay(networkCode)} ${cleanTarget}.`
+            );
+        }
+
+        return cleanTarget;
+    }
+
+    function showCallsignMatches(network, callsign, matches) {
+        if (!elements.connectCallsignResults) return;
+
+        const networkCode = normalizeNetworkCode(network);
+        elements.connectCallsignResults.replaceChildren();
+
+        for (const match of matches) {
+            const target = String(match?.target || '').replace(/\D/g, '');
+            if (!validFavoriteTarget(networkCode, target)) continue;
+
+            const call = String(match?.callsign || callsign || '')
+                .trim()
+                .toUpperCase();
+
+            const details = [match?.description, match?.location]
+                .map((value) => String(value || '').trim())
+                .filter(
+                    (value, index, values) =>
+                        value !== '' && values.indexOf(value) === index
+                )
+                .join(' — ');
+
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'ac-callsign-result';
+            button.dataset.callsignNetwork = networkCode;
+            button.dataset.callsignTarget = target;
+            button.dataset.callsignCall = call;
+
+            const title = document.createElement('strong');
+            title.textContent = `${target} — ${call}`;
+            button.appendChild(title);
+
+            if (details) {
+                const detail = document.createElement('span');
+                detail.textContent = details;
+                button.appendChild(detail);
+            }
+
+            elements.connectCallsignResults.appendChild(button);
+        }
+
+        elements.connectCallsignResults.hidden =
+            elements.connectCallsignResults.childElementCount === 0;
+    }
+
+    async function searchCallsign(network, value) {
+        const networkCode = normalizeNetworkCode(network);
+        const entry = networkCode === 'ECHO'
+            ? cleanEchoLinkEntry(value)
+            : cleanAllStarEntry(value);
+
+        const validCallsign = networkCode === 'ECHO'
+            ? validEchoLinkIdentifier(entry) && /[A-Z]/.test(entry)
+            : validAllStarIdentifier(entry) && /[A-Z]/.test(entry);
+
+        if (!identityEndpoint || !validCallsign) {
+            throw new Error(
+                `Enter a ${networkDisplay(networkCode)} callsign to search.`
+            );
+        }
+
+        state.callsignLookupController?.abort();
+
+        const controller = new AbortController();
+        state.callsignLookupController = controller;
+        const timeout = window.setTimeout(() => controller.abort(), 6000);
+
+        try {
+            setControlStatus(
+                `Looking up ${networkDisplay(networkCode)} ${entry}…`
+            );
+
+            const url = new URL(identityEndpoint, window.location.href);
+            url.searchParams.set('network', networkCode);
+            url.searchParams.set('target', entry);
+            url.searchParams.set('search', 'callsign');
+            url.searchParams.set('_', String(Date.now()));
+
+            const response = await fetch(url.toString(), {
+                cache: 'no-store',
+                credentials: 'same-origin',
+                signal: controller.signal,
+            });
+
+            const payload = await response.json().catch(() => ({}));
+
+            if (!response.ok || !payload?.ok) {
+                throw new Error(
+                    payload?.message
+                    || `${networkDisplay(networkCode)} callsign lookup failed.`
+                );
+            }
+
+            const matches = Array.isArray(payload?.matches)
+                ? payload.matches.filter((match) =>
+                    validFavoriteTarget(
+                        networkCode,
+                        String(match?.target || '').replace(/\D/g, '')
+                    )
+                )
+                : [];
+
+            if (matches.length === 0) {
+                throw new Error(
+                    `That ${networkDisplay(networkCode)} callsign was not found.`
+                );
+            }
+
+            if (matches.length === 1) {
+                return selectCallsignTarget(
+                    networkCode,
+                    matches[0].target,
+                    String(matches[0].callsign || entry).trim().toUpperCase()
+                );
+            }
+
+            showCallsignMatches(networkCode, entry, matches);
+            setControlStatus(
+                `Choose one of ${matches.length} ${networkDisplay(networkCode)} results for ${entry}.`
+            );
+            return '';
+        } catch (error) {
+            if (error?.name === 'AbortError') return '';
+            throw error;
+        } finally {
+            window.clearTimeout(timeout);
+            if (state.callsignLookupController === controller) {
+                state.callsignLookupController = null;
+            }
+        }
+    }
+
+    async function resolveAllStarConnectTarget(value) {
+        const entry = cleanAllStarEntry(value);
+
+        if (/^\d{1,7}$/.test(entry)) {
+            return entry;
+        }
+
+        return searchCallsign('ASL', entry);
+    }
+
     async function resolveEchoLinkConnectTarget(value) {
         const entry = cleanEchoLinkEntry(value);
         const mapped = mappedEchoLinkTarget(entry);
@@ -869,8 +1062,11 @@
 
     function scheduleManualFavoritePrefill(delay = 280) {
         window.clearTimeout(state.favoriteLookupTimer);
-        const target = String(elements.connectTarget?.value || '').replace(/\D/g, '');
-        const network = networkForTarget(state.selectedNetwork, target);
+        const entry = cleanConnectEntry(elements.connectTarget?.value, state.selectedNetwork);
+        const network = networkForTarget(state.selectedNetwork, entry);
+        const target = network === 'ECHO'
+            ? mappedEchoLinkTarget(entry)
+            : (/^\d{1,7}$/.test(entry) ? entry : '');
         if (!validFavoriteTarget(network, target)) {
             return;
         }
@@ -1057,11 +1253,24 @@
         }
         if (elements.connectTarget) {
             elements.connectTarget.value = target;
-            elements.connectTarget.inputMode = state.selectedNetwork === 'ECHO' ? 'text' : 'numeric';
+            elements.connectTarget.inputMode = 'text';
             elements.connectTarget.placeholder = state.selectedNetwork === 'ECHO'
                 ? 'EchoLink node or callsign'
-                : 'Enter AllStar node number';
+                : 'AllStar node or callsign';
         }
+
+        if (elements.connectCallsignSearch) {
+            const searchLabel =
+                `Search ${networkDisplay(state.selectedNetwork)} by callsign`;
+            elements.connectCallsignSearch.hidden = false;
+            elements.connectCallsignSearch.title = searchLabel;
+            elements.connectCallsignSearch.setAttribute(
+                'aria-label',
+                searchLabel
+            );
+        }
+
+        closeCallsignResults();
         syncConnectControls();
         if (prefill) scheduleManualFavoritePrefill();
     }
@@ -1102,17 +1311,6 @@
 
     function syncNetworkFromTarget() {
         const raw = String(elements.connectTarget?.value || '').trim();
-        const echoEntry = cleanEchoLinkEntry(raw);
-        const echoCallsign = (
-            echoEntry.length <= 32
-            && /^[A-Z0-9*_.\/-]+$/.test(echoEntry)
-            && /[A-Z*]/.test(echoEntry)
-        );
-
-        if (echoCallsign && state.selectedNetwork !== 'ECHO') {
-            applySelectedNetwork('ECHO', echoEntry, false);
-            return true;
-        }
 
         if (/^3\d{6}$/.test(raw) && state.selectedNetwork !== 'ECHO') {
             applySelectedNetwork('ECHO', raw, false);
@@ -1131,10 +1329,13 @@
 
         const valid = network === 'ECHO'
             ? validEchoLinkIdentifier(target)
-            : /^\d{1,7}$/.test(target);
+            : validAllStarIdentifier(target);
         const favoriteTarget = network === 'ECHO'
             ? mappedEchoLinkTarget(target)
-            : target;
+            : (/^\d{1,7}$/.test(target) ? target : '');
+        const callsignSearchable = network === 'ECHO'
+            ? validEchoLinkIdentifier(target) && /[A-Z]/.test(target)
+            : validAllStarIdentifier(target) && /[A-Z]/.test(target);
 
         if (elements.connectButton) {
             elements.connectButton.disabled =
@@ -1143,6 +1344,12 @@
                 || !valid
                 || state.pendingActions.has('connect');
         }
+        if (elements.connectCallsignSearch) {
+            elements.connectCallsignSearch.hidden = false;
+            elements.connectCallsignSearch.disabled =
+                !canWrite || !identityEndpoint || !callsignSearchable;
+        }
+
         if (elements.connectFavoriteStar) {
             elements.connectFavoriteStar.disabled = !canWrite || !valid;
             elements.connectFavoriteStar.textContent =
@@ -1163,7 +1370,9 @@
         try {
             const target = network === 'ECHO'
                 ? await resolveEchoLinkConnectTarget(entry)
-                : entry;
+                : await resolveAllStarConnectTarget(entry);
+
+            if (!target) return;
 
             setControlStatus(`Connecting ${networkDisplay(network)} ${target}…`);
             const result = await postLink({
@@ -1358,6 +1567,10 @@
         });
     }
     elements.connectTarget?.addEventListener('input', () => {
+        state.callsignLookupController?.abort();
+        state.callsignLookupController = null;
+        closeCallsignResults();
+
         if (syncNetworkFromTarget()) {
             scheduleManualFavoritePrefill();
             return;
@@ -1378,6 +1591,31 @@
             connectSelectedTarget();
         }
     });
+    elements.connectCallsignSearch?.addEventListener('click', async () => {
+        try {
+            await searchCallsign(
+                state.selectedNetwork,
+                elements.connectTarget?.value
+            );
+        } catch (error) {
+            setControlStatus(
+                error?.message || 'Callsign lookup failed.',
+                true
+            );
+        }
+    });
+
+    elements.connectCallsignResults?.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-callsign-target]');
+        if (!button) return;
+
+        selectCallsignTarget(
+            button.dataset.callsignNetwork,
+            button.dataset.callsignTarget,
+            button.dataset.callsignCall
+        );
+    });
+
     elements.connectMode?.addEventListener('change', syncConnectControls);
     elements.connectButton?.addEventListener('click', connectSelectedTarget);
     elements.connectFavoriteStar?.addEventListener('click', async () => {
@@ -1386,11 +1624,11 @@
         try {
             const target = network === 'ECHO'
                 ? await resolveEchoLinkConnectTarget(entry)
-                : entry;
-            if (!validFavoriteTarget(network, target)) return;
+                : await resolveAllStarConnectTarget(entry);
+            if (!target || !validFavoriteTarget(network, target)) return;
             prefillFavoriteEditor(network, target, null, { open: true, focus: true });
         } catch (error) {
-            setControlStatus(error?.message || 'EchoLink lookup failed.', true);
+            setControlStatus(error?.message || 'Node lookup failed.', true);
         }
     });
     elements.favoritesList?.addEventListener('click', (event) => {

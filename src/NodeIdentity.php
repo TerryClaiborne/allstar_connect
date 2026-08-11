@@ -59,6 +59,47 @@ final class NodeIdentity
         return $records[$node] ?? null;
     }
 
+    public static function astdbCallsignLookup(string $callsign): array
+    {
+        $callsign = strtoupper(trim($callsign));
+        if ($callsign === '') {
+            return [];
+        }
+
+        $matches = [];
+        $handle = @fopen('/var/lib/asterisk/astdb.txt', 'r');
+        if ($handle === false) {
+            return [];
+        }
+
+        while (($line = fgets($handle)) !== false) {
+            $parts = explode('|', trim($line));
+            $node = trim((string) ($parts[0] ?? ''));
+            $call = self::cleanDisplay((string) ($parts[1] ?? ''));
+
+            if ($node === '' || strcasecmp($call, $callsign) !== 0) {
+                continue;
+            }
+
+            $matches[] = [
+                'target' => $node,
+                'callsign' => strtoupper($call),
+                'description' => self::cleanDisplay((string) ($parts[2] ?? '')),
+                'location' => self::cleanDisplay((string) ($parts[3] ?? '')),
+            ];
+        }
+
+        fclose($handle);
+
+        usort(
+            $matches,
+            static fn(array $left, array $right): int =>
+                strnatcmp((string) $left['target'], (string) $right['target'])
+        );
+
+        return $matches;
+    }
+
     public static function cleanDisplay(string $value): string
     {
         $value = trim(preg_replace('/\s+/', ' ', $value) ?? '');

@@ -5,6 +5,7 @@ AllStar Connect is a web dashboard for controlling and monitoring an ASL3 node. 
 ## What you can do
 
 - Connect to an AllStarLink node.
+- Search AllStarLink and EchoLink targets by callsign.
 - Connect to a mapped EchoLink node.
 - Choose **Transceive** or **Local Monitor** when connecting.
 - Change the mode of a supported live connection.
@@ -37,6 +38,12 @@ The header logo opens the project repository. When a newer release is available,
 AllStar Connect reads live Asterisk and app_rpt information through restricted helper scripts. The web server can run only the helper actions allowed by the installed sudoers rules.
 
 The dashboard refreshes local connection status and keeps its downstream and EchoLink identity data in bounded local caches. Successful high-frequency polling requests are excluded from Apache's normal access log, while errors and control requests remain logged.
+
+### Callsign search
+
+AllStarLink callsign search uses ASL3's local `/var/lib/asterisk/astdb.txt` node directory. A node listed there may be offline or otherwise unavailable, so appearing in search results does not guarantee that it can be connected. A failed connection to an offline or unavailable listed node does not indicate an AllStar Connect problem.
+
+EchoLink callsign search can return the base callsign and matching `-R` and `-L` variants when available.
 
 ### EchoLink protection
 

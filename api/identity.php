@@ -45,28 +45,150 @@ if (preg_match('/^3\d{6}$/', $rawTarget) === 1) {
 }
 
 if ($network === 'ASL') {
-    if (preg_match('/^\d{1,7}$/', $target) !== 1) {
-        identity_response(['ok' => false, 'message' => 'Enter a valid AllStar node number.'], 422);
+    if (preg_match('/^\d{1,7}$/', $rawTarget) === 1) {
+        $target = $rawTarget;
+        $record = NodeIdentity::astdbLookup($target);
+        $callsign = trim((string) ($record['call'] ?? ''));
+        $description = trim((string) ($record['description'] ?? ''));
+        $location = trim((string) ($record['location'] ?? ''));
+        $qrzCallsign = NodeIdentity::qrzCallsign($callsign);
+
+        identity_response([
+            'ok' => true,
+            'identity' => [
+                'network' => 'ASL',
+                'target' => $target,
+                'found' => is_array($record),
+                'callsign' => $callsign,
+                'description' => $description,
+                'location' => $location,
+                'stats_url' => 'https://stats.allstarlink.org/stats/' . rawurlencode($target),
+                'qrz_url' => $qrzCallsign !== '' ? 'https://www.qrz.com/db/' . rawurlencode($qrzCallsign) : '',
+            ],
+        ]);
     }
 
-    $record = NodeIdentity::astdbLookup($target);
-    $callsign = trim((string) ($record['call'] ?? ''));
-    $description = trim((string) ($record['description'] ?? ''));
-    $location = trim((string) ($record['location'] ?? ''));
-    $qrzCallsign = NodeIdentity::qrzCallsign($callsign);
+    if (
+        strlen($rawTarget) > 32
+        || preg_match('/^[A-Z0-9_.\/-]+$/', $rawTarget) !== 1
+        || preg_match('/[A-Z]/', $rawTarget) !== 1
+    ) {
+        identity_response(['ok' => false, 'message' => 'Enter a valid AllStar node number or callsign.'], 422);
+    }
+
+    $matches = array_map(
+        static function (array $record): array {
+            $target = trim((string) ($record['target'] ?? ''));
+            $callsign = strtoupper(trim((string) ($record['callsign'] ?? '')));
+            $qrzCallsign = NodeIdentity::qrzCallsign($callsign);
+
+            return [
+                'network' => 'ASL',
+                'target' => $target,
+                'found' => true,
+                'callsign' => $callsign,
+                'description' => trim((string) ($record['description'] ?? '')),
+                'location' => trim((string) ($record['location'] ?? '')),
+                'stats_url' => 'https://stats.allstarlink.org/stats/' . rawurlencode($target),
+                'qrz_url' => $qrzCallsign !== '' ? 'https://www.qrz.com/db/' . rawurlencode($qrzCallsign) : '',
+            ];
+        },
+        NodeIdentity::astdbCallsignLookup($rawTarget)
+    );
+
+    if ($matches === []) {
+        identity_response([
+            'ok' => false,
+            'message' => 'That AllStar callsign was not found in the local node directory.',
+        ], 404);
+    }
 
     identity_response([
         'ok' => true,
-        'identity' => [
-            'network' => 'ASL',
+        'identity' => count($matches) === 1 ? $matches[0] : null,
+        'matches' => $matches,
+    ]);
+}
+
+if (($_GET['search'] ?? '') === 'callsign') {
+    $familyCall = preg_replace('/-(?:R|L)$/', '', $rawTarget) ?? $rawTarget;
+
+    if (
+        $familyCall === ''
+        || strlen($familyCall) > 32
+        || preg_match('/^[A-Z0-9_.\\/-]+$/', $familyCall) !== 1
+        || preg_match('/[A-Z]/', $familyCall) !== 1
+    ) {
+        identity_response([
+            'ok' => false,
+            'message' => 'Enter a valid EchoLink callsign.',
+        ], 422);
+    }
+
+    $identifiers = array_values(array_unique([
+        $familyCall,
+        $familyCall . '-R',
+        $familyCall . '-L',
+    ]));
+
+    $result = (new EchoLink())->snapshot([], $identifiers);
+    $matches = [];
+    $seenTargets = [];
+
+    foreach ($identifiers as $identifier) {
+        $entry = is_array($result['entries']['call:' . $identifier] ?? null)
+            ? $result['entries']['call:' . $identifier]
+            : [];
+
+        $resolvedNode = NodeIdentity::echoLinkNodeNumber((string) ($entry['node'] ?? ''));
+        $callsign = strtoupper(trim((string) ($entry['callsign'] ?? '')));
+
+        if ($resolvedNode === '' || $resolvedNode === '0' || $callsign === '') {
+            continue;
+        }
+
+        $target = '3' . str_pad($resolvedNode, 6, '0', STR_PAD_LEFT);
+        if (isset($seenTargets[$target])) {
+            continue;
+        }
+        $seenTargets[$target] = true;
+
+        $qrzCallsign = NodeIdentity::qrzCallsign($callsign);
+        $matches[] = [
+            'network' => 'ECHO',
             'target' => $target,
-            'found' => is_array($record),
+            'official_node' => $resolvedNode,
+            'found' => true,
             'callsign' => $callsign,
-            'description' => $description,
-            'location' => $location,
-            'stats_url' => 'https://stats.allstarlink.org/stats/' . rawurlencode($target),
-            'qrz_url' => $qrzCallsign !== '' ? 'https://www.qrz.com/db/' . rawurlencode($qrzCallsign) : '',
-        ],
+            'description' => echolink_description($callsign),
+            'location' => '',
+            'stats_url' => '',
+            'qrz_url' => $qrzCallsign !== ''
+                ? 'https://www.qrz.com/db/' . rawurlencode($qrzCallsign)
+                : '',
+        ];
+    }
+
+    if ($matches === []) {
+        identity_response([
+            'ok' => false,
+            'message' => 'No matching EchoLink callsign was found.',
+        ], 404);
+    }
+
+    usort(
+        $matches,
+        static fn(array $left, array $right): int =>
+            strnatcasecmp(
+                (string) ($left['callsign'] ?? ''),
+                (string) ($right['callsign'] ?? '')
+            )
+    );
+
+    identity_response([
+        'ok' => true,
+        'identity' => count($matches) === 1 ? $matches[0] : null,
+        'matches' => $matches,
     ]);
 }
 
