@@ -1146,6 +1146,20 @@ html[data-theme="light"] .ac-ds-row.ac-ds-client .ac-ds-main strong { color: #8f
     border-bottom: 1px solid var(--ac-border);
 }
 .ac-favorites-search { display: grid; gap: 5px; color: var(--ac-text); font-size: 11px; font-weight: 800; }
+.ac-favorites-toolbar > .ac-callsign-results { grid-column: 1 / -1; margin-top: 0; max-height: 430px; }
+.ac-favorites-toolbar .ac-callsign-result.is-static:hover {
+    border-color: transparent;
+    background: transparent;
+}
+.ac-favorites-node-add {
+    align-self: end;
+    justify-self: end;
+    min-height: 34px;
+    margin-top: 0;
+    padding: 0 12px;
+    text-transform: none;
+    white-space: nowrap;
+}
 .ac-favorites-search input::-webkit-search-cancel-button {
     cursor: pointer;
 }

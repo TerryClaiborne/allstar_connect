@@ -175,7 +175,9 @@ The setup script creates the hash automatically. The plain password is not store
 
 Favorites can be opened from the dashboard.
 
-You can save a live connection or enter a target manually, then search, sort, edit, remove, or connect to saved Favorites.
+Type a callsign into **Search Favorites or Find a Station** and AllStar Connect automatically looks for matching AllStarLink and EchoLink stations. If the callsign has more than one node or EchoLink entry, the available choices are shown so you can pick the one you want. Use **+ Add Favorite** for a station that is not saved, or **Edit Saved Favorite** for one that is already in your Favorites.
+
+You can also type a node number. **Add Node** adds an unsaved node, while **Edit Saved** opens a node that is already saved. With the search box empty, **Add Node** opens manual entry. Saved Favorites can still be searched, sorted, loaded, edited, and removed.
 
 ## Local data and logs
 

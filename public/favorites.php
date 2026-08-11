@@ -99,15 +99,16 @@ $favoritesVersion = substr((string) @hash_file('sha256', $root . '/public/assets
     <main class="ac-favorites-main">
         <section class="ac-card ac-favorites-manager">
             <div class="ac-card-title-row">
-                <div><h1>Favorites</h1><p>AllStarLink and EchoLink · View · Load · Add · Edit · Remove</p></div>
+                <div><h1>Favorites</h1><p>Search saved Favorites or find AllStarLink and EchoLink stations to add. Load, edit, or remove saved Favorites anytime.</p></div>
                 <strong class="ac-count" id="favorites-count">0</strong>
             </div>
             <div class="ac-favorites-toolbar">
                 <label class="ac-favorites-search">
-                    <span>Search or Add</span>
-                    <input id="favorites-search" type="search" placeholder="Search saved Favorites or enter a node to add">
+                    <span>Search Favorites or Find a Station</span>
+                    <input id="favorites-search" type="search" placeholder="Enter a callsign or node number">
                 </label>
-                <button type="button" class="ac-primary-button" id="favorites-add" <?= $canWrite ? '' : 'disabled' ?>>+ Add Favorite</button>
+                <button type="button" class="ac-secondary-button ac-favorites-node-add" id="favorites-add" <?= $canWrite ? '' : 'disabled' ?>>Add Node</button>
+                <div class="ac-callsign-results" id="favorites-callsign-results" hidden></div>
             </div>
             <div class="ac-favorites-table-wrap ac-scroll">
                 <table class="ac-favorites-table">
