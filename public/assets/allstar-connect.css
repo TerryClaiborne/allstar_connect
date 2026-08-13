@@ -1151,6 +1151,10 @@ html[data-theme="light"] .ac-ds-row.ac-ds-client .ac-ds-main strong { color: #8f
     border-color: transparent;
     background: transparent;
 }
+.ac-favorites-toolbar .ac-callsign-result.is-asl > strong { color: #5ca9ff; }
+.ac-favorites-toolbar .ac-callsign-result.is-echo > strong { color: #b874ff; }
+html[data-theme="light"] .ac-favorites-toolbar .ac-callsign-result.is-asl > strong { color: #225d94; }
+html[data-theme="light"] .ac-favorites-toolbar .ac-callsign-result.is-echo > strong { color: #7c3696; }
 .ac-favorites-node-add {
     align-self: end;
     justify-self: end;

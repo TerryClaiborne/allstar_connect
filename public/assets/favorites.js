@@ -100,7 +100,7 @@
     }
 
     function openEditor(options = {}) {
-        if (!elements.modal) return;
+        if (!canWrite || !elements.modal) return;
         elements.modal.hidden = false;
         elements.modal.setAttribute('aria-hidden', 'false');
         document.body.classList.add('ac-modal-open');
@@ -184,20 +184,20 @@
         }
         elements.body.innerHTML = items.map((item) => `
             <tr data-network="${escapeHtml(item.network)}" data-target="${escapeHtml(item.target)}">
-                <td><button type="button" class="ac-favorite-row-edit" data-edit-favorite>${escapeHtml(item.target)}</button></td>
+                <td><button type="button" class="ac-favorite-row-edit" data-edit-favorite ${canWrite ? '' : 'disabled'}>${escapeHtml(item.target)}</button></td>
                 <td><span class="ac-favorite-network-badge is-${String(item.network || 'ASL').toLowerCase()}">${escapeHtml(networkLabel(item.network))}</span></td>
                 <td>${escapeHtml(item.name)}</td>
                 <td>${escapeHtml(item.description)}</td>
                 <td class="ac-favorite-table-actions">
                     <a class="ac-small-button" href="/allstar_connect/public/?network=${encodeURIComponent(item.network)}&target=${encodeURIComponent(item.target)}">Load</a>
-                    <button type="button" class="ac-small-button" data-edit-favorite>Edit</button>
+                    <button type="button" class="ac-small-button" data-edit-favorite ${canWrite ? '' : 'disabled'}>Edit</button>
                     <button type="button" class="ac-small-button is-danger" data-delete-favorite ${canWrite ? '' : 'disabled'}>Remove</button>
                 </td>
             </tr>`).join('');
     }
 
     function editItem(item, focusName = false) {
-        if (!item) return;
+        if (!item || !canWrite) return;
         const network = networkForTarget(item.network, item.target);
         elements.network.value = network;
         elements.target.value = cleanTarget(item.target);
@@ -425,7 +425,7 @@
             const saved = Boolean(findFavorite(network, target));
 
             const result = document.createElement('div');
-            result.className = 'ac-callsign-result is-static';
+            result.className = `ac-callsign-result is-static is-${network.toLowerCase()}`;
 
             const title = document.createElement('strong');
             title.textContent = `${networkLabel(network)} ${target} — ${call}`;
@@ -445,6 +445,7 @@
             action.className = 'ac-small-button';
             action.dataset.callsignNetwork = network;
             action.dataset.callsignTarget = target;
+            action.disabled = !canWrite;
             action.textContent = saved
                 ? 'Edit Saved Favorite'
                 : '+ Add Favorite';
@@ -555,11 +556,15 @@
     }
 
     async function refresh() {
-        if (!endpoint) return;
+        if (!endpoint || document.hidden) return;
         try {
             const response = await fetch(`${endpoint}?_=${Date.now()}`, { cache: 'no-store', credentials: 'same-origin' });
             const payload = await response.json();
             if (!response.ok || !payload?.ok) throw new Error(payload?.message || 'Unable to load Favorites.');
+            if (typeof payload.can_write === 'boolean' && payload.can_write !== canWrite) {
+                window.location.reload();
+                return;
+            }
             state.items = Array.isArray(payload.favorites) ? payload.favorites : [];
             render();
         } catch (error) {
@@ -589,11 +594,14 @@
         window.clearTimeout(state.callsignLookupTimer);
         state.callsignLookupTimer = 0;
         state.callsignLookupController?.abort();
+
+        if (elements.search) elements.search.value = elements.search.value.toUpperCase();
+        const callsign = exactSearchCallsign();
+
         closeFavoriteCallsignResults();
         updateNodeAddButton();
         render();
 
-        const callsign = exactSearchCallsign();
         if (callsign.length < 3) return;
 
         state.callsignLookupTimer = window.setTimeout(() => {
@@ -775,6 +783,11 @@
             setStatus(error.message || 'Unable to save Favorite.', true);
         }
     });
+
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) refresh();
+    });
+    window.setInterval(refresh, 600000);
 
     clearEditor();
     refresh();

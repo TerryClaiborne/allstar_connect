@@ -3835,6 +3835,11 @@
             if (!response.ok || !payload?.ok || !payload?.data) {
                 throw new Error(payload?.message || 'Local status request failed.');
             }
+            if (typeof payload.can_write === 'boolean' && payload.can_write !== canWrite) {
+                window.location.reload();
+                return;
+            }
+
             noteLocalSuccess();
             renderLocalSnapshot(payload.data);
         } catch (error) {

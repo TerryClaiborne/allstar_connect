@@ -4,9 +4,11 @@ declare(strict_types=1);
 require_once dirname(__DIR__) . '/app/Support/AppSession.php';
 \AllStarConnect\Support\AppSession::start();
 require_once dirname(__DIR__) . '/app/Support/Config.php';
+require_once dirname(__DIR__) . '/app/Support/AppAuth.php';
 require_once dirname(__DIR__) . '/app/Support/ApiAuthGuard.php';
 
 use AllStarConnect\Support\ApiAuthGuard;
+use AllStarConnect\Support\AppAuth;
 use AllStarConnect\Support\Config;
 
 header('Content-Type: application/json; charset=UTF-8');
@@ -110,8 +112,16 @@ function request_favorites_data(): array
 $config = new Config(dirname(__DIR__) . '/config.ini');
 $method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
 if ($method === 'GET') {
+    $auth = new AppAuth($config);
+    $canWrite = !$auth->isEnabled() || $auth->isLoggedIn();
+    session_write_close();
     $items = load_favorites();
-    respond_favorites(['ok' => true, 'favorites' => $items, 'favorites_count' => count($items)]);
+    respond_favorites([
+        'ok' => true,
+        'can_write' => $canWrite,
+        'favorites' => $items,
+        'favorites_count' => count($items),
+    ]);
 }
 if ($method !== 'POST') {
     respond_favorites(['ok' => false, 'message' => 'Unsupported request method.'], 405);

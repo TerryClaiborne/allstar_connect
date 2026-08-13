@@ -41,9 +41,13 @@ The dashboard refreshes local connection status and keeps its downstream and Ech
 
 ### Callsign search
 
-AllStarLink callsign search uses ASL3's local `/var/lib/asterisk/astdb.txt` node directory. A node listed there may be offline or otherwise unavailable, so appearing in search results does not guarantee that it can be connected. A failed connection to an offline or unavailable listed node does not indicate an AllStar Connect problem.
+In **Connect - Target**, type a callsign and press **Enter** or click the **magnifying glass**. AllStar Connect searches both AllStarLink and EchoLink. AllStarLink nodes are shown under the AllStarLink tab and EchoLink matches under EchoLink. Select the station you want, then connect to it or add it to Favorites. Press **Escape** to clear the search and results.
 
-EchoLink callsign search can return the base callsign and matching `-R` and `-L` variants when available.
+AllStarLink callsign search uses ASL3's local `/var/lib/asterisk/astdb.txt` node directory. A listed node may be offline or unavailable, so appearing in the results does not guarantee that it can be connected. EchoLink search can return the base callsign and matching `-R` and `-L` variants when available.
+
+### DTMF Favorites
+
+Use **DTMF Favorites** to save the DTMF commands you use most often with a name, so they can be sent quickly from the Dashboard without typing the code every time.
 
 ### EchoLink protection
 
