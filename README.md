@@ -177,7 +177,7 @@ The setup script creates the hash automatically. The plain password is not store
 
 ## Favorites
 
-Favorites can be opened from the dashboard.
+On the Dashboard, select a saved Favorite to load it into Target Node. The star button adds to or edits Favorites.
 
 Type a callsign into **Search Favorites or Find a Station** and AllStar Connect automatically looks for matching AllStarLink and EchoLink stations. If the callsign has more than one node or EchoLink entry, the available choices are shown so you can pick the one you want. Use **+ Add Favorite** for a station that is not saved, or **Edit Saved Favorite** for one that is already in your Favorites.
 

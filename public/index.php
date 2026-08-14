@@ -125,7 +125,7 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
 
                 <div class="ac-connect-section">
                     <h3>Connect</h3>
-                    <p class="ac-section-note">Make a new connection</p>
+                    <p class="ac-section-note">Select a saved Favorite below to load it into Target Node. The star button adds to or edits Favorites.</p>
 
                     <div class="ac-network-tabs" role="group" aria-label="Network">
                         <button type="button" class="is-active" data-network="ASL" aria-pressed="true" <?= $canWrite ? '' : 'disabled' ?>>AllStarLink</button>

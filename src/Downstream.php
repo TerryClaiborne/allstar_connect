@@ -90,7 +90,7 @@ final class Downstream
         $lock = @fopen($lockPath, 'c');
         if ($lock !== false && !@flock($lock, LOCK_EX | LOCK_NB)) {
             @fclose($lock);
-            return $this->response($state, true);
+            return $this->response($state, true, [], $localNode, $connections);
         }
 
         try {
@@ -101,7 +101,7 @@ final class Downstream
                 $state = $this->newState($signature, []);
                 $state['display_updated_at'] = gmdate('c');
                 $this->writeJson($statePath, $state);
-                return $this->response($state, false);
+                return $this->response($state, false, [], $localNode, $connections);
             }
 
             if (!$this->hasActiveScan($state) && $this->needsRefresh($state)) {
@@ -114,7 +114,7 @@ final class Downstream
 
             $peerSnapshots = $this->peerLocalSnapshots($direct, $localNode);
             $this->writeJson($statePath, $state);
-            return $this->response($state, false, $peerSnapshots, $localNode);
+            return $this->response($state, false, $peerSnapshots, $localNode, $connections);
         } finally {
             if (is_resource($lock)) {
                 @flock($lock, LOCK_UN);
@@ -1009,7 +1009,7 @@ final class Downstream
         return $result;
     }
 
-    private function overlayLocalNodeBranches(array $display, array $direct, string $localNode): array
+    private function overlayLocalNodeBranches(array $display, array $connections, string $localNode): array
     {
         $parents = [];
         $localRows = [];
@@ -1051,8 +1051,27 @@ final class Downstream
                 $ancestors[$node] = true;
             }
 
-            foreach ($direct as $connection) {
+            foreach ($connections as $connection) {
                 if (!is_array($connection)) {
+                    continue;
+                }
+
+                $kind = strtolower(trim((string) ($connection['kind'] ?? '')));
+                if ($kind === 'echo') {
+                    $echoNode = trim((string) ($connection['node'] ?? ''));
+                    if ($echoNode !== '') {
+                        $this->addWorkingNode($map, array_merge($connection, [
+                            'key' => 'downstream-echo:' . $directNode . ':' . $localNode . ':' . $echoNode,
+                            'direct_node' => $directNode,
+                            'parent_node' => $localNode,
+                            'depth' => max(1, (int) ($localRow['depth'] ?? 1)) + 1,
+                            'local_reported' => true,
+                        ]));
+                    }
+                    continue;
+                }
+
+                if ($kind !== 'asl') {
                     continue;
                 }
 
@@ -1172,7 +1191,7 @@ final class Downstream
         return is_string($output) ? trim($output) : null;
     }
 
-    private function response(array $state, bool $refreshInProgress, array $peerSnapshots = [], string $localNode = ''): array
+    private function response(array $state, bool $refreshInProgress, array $peerSnapshots = [], string $localNode = '', array $localConnections = []): array
     {
         $scan = is_array($state['scan'] ?? null) ? $state['scan'] : null;
         $display = array_values(array_filter($state['display_nodes'] ?? [], 'is_array'));
@@ -1195,8 +1214,8 @@ final class Downstream
         }
 
         $direct = array_values(array_filter($state['direct'] ?? [], 'is_array'));
-        if ($localNode !== '' && $direct !== []) {
-            $display = $this->overlayLocalNodeBranches($display, $direct, $localNode);
+        if ($localNode !== '' && $localConnections !== []) {
+            $display = $this->overlayLocalNodeBranches($display, $localConnections, $localNode);
         }
         $display = $this->normalizePrivateNodeClassification($display);
         $pending = $scan !== null ? count($scan['queue'] ?? []) : 0;
