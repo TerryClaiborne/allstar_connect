@@ -36,7 +36,7 @@ final class Downstream
         $localNode = $this->digits((string) $this->config->get('MYNODE', ''));
         $direct = $this->directSources($connections, $localNode);
         $signature = $this->directSignature($direct);
-        $state = $this->readJson($statePath) ?? $this->newState($signature, $direct, true);
+        $state = $this->readJson($statePath) ?? $this->newState($signature, $direct);
         if (($state['signature'] ?? '') !== $signature) {
             $previousRows = [];
             foreach (array_merge(
@@ -55,7 +55,7 @@ final class Downstream
                 }
             }
 
-            $state = $this->newState($signature, $direct, true);
+            $state = $this->newState($signature, $direct);
 
             // Keep completed branches that are still directly connected while
             // the changed direct-node set is rescanned in the background.
@@ -375,7 +375,7 @@ final class Downstream
 
                 $childNode = (string) ($child['node'] ?? '');
                 $childVisitKey = (string) ($current['direct_node'] ?? '') . ':' . $childNode;
-                if ($childNode !== '' && $childNode !== $localNode && !isset($scan['visited'][$childVisitKey])) {
+                if ($childNode !== '' && $childNode !== $localNode && empty($child['is_private']) && !isset($scan['visited'][$childVisitKey])) {
                     $scan['queue'][] = [
                         'node' => $childNode,
                         'depth' => $depth + 1,
