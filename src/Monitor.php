@@ -489,7 +489,7 @@ final class Monitor
 
             if (strtolower((string) $section) === 'general') {
                 $configuredHost = trim((string) ($values['bindaddr'] ?? ''));
-                if ($configuredHost !== '' && !in_array($configuredHost, ['0.0.0.0', '::'], true)) {
+                if ($configuredHost !== '' && !in_array($configuredHost, ['0.0.0.0', '0.0.0.0/0', '::', '::/0'], true)) {
                     $host = $configuredHost;
                 }
                 $configuredPort = trim((string) ($values['port'] ?? ''));

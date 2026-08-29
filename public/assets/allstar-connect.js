@@ -3487,7 +3487,6 @@
 
         const hasQrz = Boolean(item.qrz_url);
         const canFavorite = canWrite
-            && !item.historical
             && !Boolean(item.is_private)
             && ['asl', 'echo'].includes(kind)
             && Boolean(favoriteTarget);
