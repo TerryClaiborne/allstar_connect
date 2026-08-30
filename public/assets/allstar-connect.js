@@ -3822,7 +3822,24 @@
         const summary = snapshot.summary && typeof snapshot.summary === 'object' ? snapshot.summary : {};
         state.localNode = String(snapshot.node || state.localNode || '').trim();
         const normalizedConnections = connections.map(applyEchoLinkIdentity);
+        const previousConnectionKeys = new Set(
+            state.connections.map((item) => String(item?.key || ''))
+        );
         state.connections = reconcilePendingDisconnects(normalizedConnections, state.connections);
+
+        if (state.selectedType === 'lookup') {
+            const newConnection = state.connections.find((item) =>
+                !previousConnectionKeys.has(String(item?.key || ''))
+                && !pendingDisconnectActive(item)
+            );
+
+            if (newConnection) {
+                state.lookupItem = null;
+                state.selectedKey = newConnection.key;
+                state.selectedType = 'current';
+            }
+        }
+
         state.activity = (Array.isArray(snapshot.activity) ? snapshot.activity : [])
             .map((item) => String(item?.kind || '') === 'echo' ? applyEchoLinkIdentity(item) : item);
         window.dispatchEvent(new CustomEvent('allstar_connect:connections', { detail: state.connections }));
