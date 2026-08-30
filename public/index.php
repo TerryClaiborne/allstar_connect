@@ -136,7 +136,7 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                         <span>Target Node</span>
                         <span class="ac-input-with-action">
                             <input id="connect-target" type="text" inputmode="text" placeholder="AllStar node or callsign" <?= $canWrite ? '' : 'disabled' ?>>
-                            <button type="button" class="ac-inline-search" id="connect-callsign-search" aria-label="Search by callsign" title="Search by callsign" aria-controls="allstar-connect-callsign-results" <?= $canWrite ? '' : 'disabled' ?>>
+                            <button type="button" class="ac-inline-search" id="connect-callsign-search" aria-label="Search by node or callsign" title="Search by node or callsign" aria-controls="allstar-connect-callsign-results" <?= $canWrite ? '' : 'disabled' ?>>
                                 <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="M15.5 15.5 21 21"></path></svg>
                             </button>
                             <button type="button" class="ac-inline-star" id="connect-favorite-star" aria-label="Add manual target to Favorites" <?= $canWrite ? '' : 'disabled' ?>>☆</button>

@@ -162,6 +162,8 @@
         favoriteLookupTimer: 0,
         favoriteLookupController: null,
         callsignLookupController: null,
+        callsignMatches: [],
+        lookupItem: null,
         loadIdentityCache: new Map(),
         loadIdentityRequests: new Map(),
         favoriteEditorKey: '',
@@ -757,12 +759,58 @@
     }
 
     function closeCallsignResults() {
+        state.callsignMatches = [];
         if (!elements.connectCallsignResults) return;
         elements.connectCallsignResults.replaceChildren();
         elements.connectCallsignResults.hidden = true;
     }
 
-    function selectCallsignTarget(network, target, callsign = '') {
+    function lookupItemForTarget(network, target, callsign = '', identity = null) {
+        const networkCode = normalizeNetworkCode(network);
+        const cleanTarget = String(target || '').replace(/\D/g, '');
+        if (!validFavoriteTarget(networkCode, cleanTarget)) return null;
+
+        const info = identity && typeof identity === 'object' ? identity : {};
+        const call = String(info.callsign || callsign || '').trim().toUpperCase();
+
+        if (networkCode === 'ECHO') {
+            const officialNode = echoLinkNodeNumber(
+                info.official_node || cleanTarget
+            );
+            if (!officialNode || officialNode === '0') return null;
+
+            return {
+                key: `lookup:echo:${cleanTarget}`,
+                lookup_result: true,
+                kind: 'echo',
+                node: officialNode,
+                reported_node: officialNode,
+                echolink_node: officialNode,
+                identity_verified: true,
+                callsign: call,
+                description: String(info.description || echoLinkDescription(call) || '').trim(),
+                location: String(info.location || '').trim(),
+                source: 'EchoLink Lookup',
+                qrz_url: String(info.qrz_url || '').trim(),
+                is_private: false,
+            };
+        }
+
+        return {
+            key: `lookup:asl:${cleanTarget}`,
+            lookup_result: true,
+            kind: 'asl',
+            node: cleanTarget,
+            callsign: call,
+            description: String(info.description || '').trim(),
+            location: String(info.location || '').trim(),
+            source: 'AllStarLink Lookup',
+            qrz_url: String(info.qrz_url || '').trim(),
+            is_private: false,
+        };
+    }
+
+    function selectCallsignTarget(network, target, callsign = '', identity = null) {
         const networkCode = normalizeNetworkCode(network);
         const cleanTarget = String(target || '').replace(/\D/g, '');
 
@@ -772,9 +820,24 @@
             elements.connectTarget.value = cleanTarget;
         }
 
+        const lookupItem = lookupItemForTarget(
+            networkCode,
+            cleanTarget,
+            callsign,
+            identity
+        );
+
+        if (networkCode === 'ASL' && identity?.found === true) {
+            state.loadIdentityCache.set(cleanTarget, true);
+        }
+
         closeCallsignResults();
         applySelectedNetwork(networkCode, cleanTarget, false);
         scheduleManualFavoritePrefill(50);
+
+        if (lookupItem) {
+            selectItem(lookupItem, 'lookup');
+        }
 
         if (callsign) {
             setControlStatus(
@@ -789,6 +852,7 @@
         if (!elements.connectCallsignResults) return;
 
         const networkCode = normalizeNetworkCode(network);
+        state.callsignMatches = Array.isArray(matches) ? matches.slice() : [];
         elements.connectCallsignResults.replaceChildren();
 
         for (const match of matches) {
@@ -894,17 +958,39 @@
                 );
             }
 
-            if (matches.length === 1) {
+            const exactMatches = matches.filter((match) =>
+                String(match?.callsign || '').trim().toUpperCase() === entry
+            );
+
+            /*
+             * A bare EchoLink callsign can legitimately have several related
+             * User, Link, and Repeater entries. Preserve that result list.
+             * When a specific suffixed EchoLink callsign such as -R or -L is
+             * entered, prefer its exact match.
+             *
+             * AllStarLink continues to prefer exact callsign matches while
+             * preserving multiple nodes that share that exact callsign.
+             */
+            const specificEchoCallsign =
+                networkCode === 'ECHO' && entry.includes('-');
+
+            const selectableMatches =
+                networkCode === 'ECHO' && !specificEchoCallsign
+                    ? matches
+                    : (exactMatches.length > 0 ? exactMatches : matches);
+
+            if (selectableMatches.length === 1) {
                 return selectCallsignTarget(
                     networkCode,
-                    matches[0].target,
-                    String(matches[0].callsign || entry).trim().toUpperCase()
+                    selectableMatches[0].target,
+                    String(selectableMatches[0].callsign || entry).trim().toUpperCase(),
+                    selectableMatches[0]
                 );
             }
 
-            showCallsignMatches(networkCode, entry, matches);
+            showCallsignMatches(networkCode, entry, selectableMatches);
             setControlStatus(
-                `Choose one of ${matches.length} ${networkDisplay(networkCode)} results for ${entry}.`
+                `Choose one of ${selectableMatches.length} ${networkDisplay(networkCode)} results for ${entry}.`
             );
             return '';
         } catch (error) {
@@ -916,6 +1002,47 @@
                 state.callsignLookupController = null;
             }
         }
+    }
+
+    async function searchConnectTarget(network, value) {
+        const networkCode = normalizeNetworkCode(network);
+        const entry = networkCode === 'ECHO'
+            ? cleanEchoLinkEntry(value)
+            : cleanAllStarEntry(value);
+        const validEntry = networkCode === 'ECHO'
+            ? validEchoLinkIdentifier(entry)
+            : validAllStarIdentifier(entry);
+
+        if (!identityEndpoint || !validEntry) {
+            throw new Error(
+                `Enter a ${networkDisplay(networkCode)} node number or callsign to search.`
+            );
+        }
+
+        if (!/^\d+$/.test(entry)) {
+            return searchCallsign(networkCode, entry);
+        }
+
+        setControlStatus(
+            `Looking up ${networkDisplay(networkCode)} ${entry}…`
+        );
+
+        const identity = await lookupTargetIdentity(networkCode, entry);
+        const target = String(identity?.target || '').replace(/\D/g, '');
+        const callsign = String(identity?.callsign || '').trim().toUpperCase();
+
+        if (!identity?.found || !validFavoriteTarget(networkCode, target)) {
+            throw new Error(
+                `That ${networkDisplay(networkCode)} node was not found.`
+            );
+        }
+
+        return selectCallsignTarget(
+            networkCode,
+            target,
+            callsign,
+            identity
+        );
     }
 
     async function resolveAllStarConnectTarget(value) {
@@ -1261,7 +1388,7 @@
 
         if (elements.connectCallsignSearch) {
             const searchLabel =
-                `Search ${networkDisplay(state.selectedNetwork)} by callsign`;
+                `Search ${networkDisplay(state.selectedNetwork)} by node or callsign`;
             elements.connectCallsignSearch.hidden = false;
             elements.connectCallsignSearch.title = searchLabel;
             elements.connectCallsignSearch.setAttribute(
@@ -1333,9 +1460,9 @@
         const favoriteTarget = network === 'ECHO'
             ? mappedEchoLinkTarget(target)
             : (/^\d{1,7}$/.test(target) ? target : '');
-        const callsignSearchable = network === 'ECHO'
-            ? validEchoLinkIdentifier(target) && /[A-Z]/.test(target)
-            : validAllStarIdentifier(target) && /[A-Z]/.test(target);
+        const targetSearchable = network === 'ECHO'
+            ? validEchoLinkIdentifier(target)
+            : validAllStarIdentifier(target);
 
         if (elements.connectButton) {
             elements.connectButton.disabled =
@@ -1347,7 +1474,7 @@
         if (elements.connectCallsignSearch) {
             elements.connectCallsignSearch.hidden = false;
             elements.connectCallsignSearch.disabled =
-                !canWrite || !identityEndpoint || !callsignSearchable;
+                !canWrite || !identityEndpoint || !targetSearchable;
         }
 
         if (elements.connectFavoriteStar) {
@@ -1608,13 +1735,13 @@
     });
     elements.connectCallsignSearch?.addEventListener('click', async () => {
         try {
-            await searchCallsign(
+            await searchConnectTarget(
                 state.selectedNetwork,
                 elements.connectTarget?.value
             );
         } catch (error) {
             setControlStatus(
-                error?.message || 'Callsign lookup failed.',
+                error?.message || 'Node or callsign lookup failed.',
                 true
             );
         }
@@ -1637,10 +1764,18 @@
         const button = event.target.closest('[data-callsign-target]');
         if (!button) return;
 
+        const selectedNetwork = normalizeNetworkCode(button.dataset.callsignNetwork);
+        const selectedTarget = String(button.dataset.callsignTarget || '').replace(/\D/g, '');
+        const selectedMatch = state.callsignMatches.find((match) =>
+            normalizeNetworkCode(match?.network || selectedNetwork) === selectedNetwork
+            && String(match?.target || '').replace(/\D/g, '') === selectedTarget
+        ) || null;
+
         selectCallsignTarget(
-            button.dataset.callsignNetwork,
-            button.dataset.callsignTarget,
-            button.dataset.callsignCall
+            selectedNetwork,
+            selectedTarget,
+            button.dataset.callsignCall,
+            selectedMatch
         );
     });
 
@@ -2301,6 +2436,7 @@
     }
 
     function selectItem(item, type) {
+        state.lookupItem = type === 'lookup' && item ? item : null;
         state.selectedKey = String(item?.key || '');
         state.selectedType = state.selectedKey ? type : '';
         renderConnections(state.connections);
@@ -2319,6 +2455,7 @@
 
     function selectActivity(event) {
         const item = historicalActivityItem(event);
+        state.lookupItem = null;
         state.selectedKey = item ? item.key : '';
         state.selectedType = state.selectedKey ? 'activity' : '';
         renderConnections(state.connections);
@@ -2344,6 +2481,12 @@
     }
 
     function selectedItem() {
+        if (state.selectedType === 'lookup') {
+            return state.lookupItem
+                && String(state.lookupItem.key || '') === state.selectedKey
+                ? state.lookupItem
+                : null;
+        }
         if (state.selectedType === 'current') {
             return state.connections.find((item) => item.key === state.selectedKey) || null;
         }
@@ -3413,6 +3556,7 @@
         }
 
         const kind = String(item.kind || 'asl');
+        const isLookupResult = Boolean(item.lookup_result);
         const rawDirection = String(item.direction || '').trim().toLowerCase();
         let directionLabel = '';
         if (rawDirection === 'incoming' || rawDirection === 'in' || rawDirection.startsWith('in')) {
@@ -3434,10 +3578,15 @@
             else if (kind === 'client' || kind === 'iax') directionLabel = 'Incoming';
             else directionLabel = 'Not reported';
         }
+        if (isLookupResult) directionLabel = '—';
         const linkLabel = kind === 'echo' ? 'EchoLink' : (kind === 'client' ? 'Web/Phone Client' : (kind === 'iax' ? 'IAX' : 'AllStarLink'));
         const typeLabel = kind === 'echo' ? 'EchoLink Station' : (kind === 'client' ? 'Web/Phone Client' : (kind === 'iax' ? 'IAX Client' : (Boolean(item.is_private) ? 'Private AllStar Node' : 'AllStarLink Node')));
-        const modeLabel = String(item.mode_label || (item.mode === 'local_monitor' ? 'Local Monitor' : (item.mode ? 'Transceive' : '—')));
-        const connectedTo = String(item.connected_to || item.parent_node || state.localNode || '—');
+        const modeLabel = isLookupResult
+            ? '—'
+            : String(item.mode_label || (item.mode === 'local_monitor' ? 'Local Monitor' : (item.mode ? 'Transceive' : '—')));
+        const connectedTo = isLookupResult
+            ? '—'
+            : String(item.connected_to || item.parent_node || state.localNode || '—');
 
         if (elements.detailNode) elements.detailNode.textContent = item.node || '—';
         if (elements.detailCall) elements.detailCall.textContent = item.callsign || '—';
@@ -3448,7 +3597,9 @@
         if (elements.detailConnectedTo) elements.detailConnectedTo.textContent = connectedTo;
         const durationItem = isDownstreamRoot && matchingConnection ? matchingConnection : item;
         if (elements.detailDuration) {
-            elements.detailDuration.textContent = isNestedDownstream ? '—' : connectionDurationLabel(durationItem);
+            elements.detailDuration.textContent = isLookupResult
+                ? '—'
+                : (isNestedDownstream ? '—' : connectionDurationLabel(durationItem));
         }
         if (elements.detailMode) elements.detailMode.textContent = modeLabel;
         const favoriteTarget = favoriteTargetForItem(item);
@@ -3463,7 +3614,9 @@
         if (elements.detailFavoriteState) elements.detailFavoriteState.textContent = savedFavorite ? 'Saved' : 'Not saved';
 
         if (elements.detailPath) {
-            if (item.historical) {
+            if (isLookupResult) {
+                elements.detailPath.textContent = `Lookup Result · ${linkLabel}`;
+            } else if (item.historical) {
                 const eventLabel = activityLabel(item.activity_type);
                 elements.detailPath.textContent = `Historical ${eventLabel} · ${formatTime(item.activity_timestamp)} · ${item.source}`;
             } else if (item.direct_node) {
