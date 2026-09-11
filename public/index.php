@@ -59,6 +59,8 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
 <div class="allstar-connect-page ac-page"
      data-status-endpoint="/allstar_connect/api/local.php"
      data-downstream-endpoint="/allstar_connect/api/downstream.php"
+     data-scan-mode-endpoint="/allstar_connect/api/scan_mode.php"
+     data-favorites-activity-endpoint="/allstar_connect/api/favorites_activity.php"
      data-echolink-endpoint="/allstar_connect/api/echolink.php"
      data-control-endpoint="/allstar_connect/api/control.php"
      data-link-endpoint="/allstar_connect/api/link.php"
@@ -82,12 +84,12 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
         </div>
 
         <nav class="ac-nav" aria-label="Primary navigation">
-            <a class="ac-nav-link is-active" href="#dashboard">Dashboard</a>
-            <a class="ac-nav-link" href="/allstar_connect/public/favorites.php">Favorites</a>
+            <a class="ac-nav-link is-active" href="#dashboard" title="Open the Dashboard">Dashboard</a>
+            <a class="ac-nav-link" href="/allstar_connect/public/favorites.php" title="Open Favorites management">Favorites</a>
         </nav>
 
         <div class="ac-header-tools">
-            <button type="button" class="ac-theme-toggle" id="theme-toggle" role="switch" aria-checked="false" aria-label="Toggle light and dark mode">
+            <button type="button" class="ac-theme-toggle" id="theme-toggle" role="switch" aria-checked="false" aria-label="Toggle light and dark mode" title="Toggle light and dark mode">
                 <span class="ac-theme-sun" aria-hidden="true">☀</span>
                 <span class="ac-theme-moon" aria-hidden="true">☾</span>
             </button>
@@ -100,9 +102,9 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                 <?php if (!$authEnabled): ?>
                     <span class="ac-auth-pill">Normal Mode</span>
                 <?php elseif ($authLoggedIn): ?>
-                    <a class="ac-auth-button" href="/allstar_connect/public/logout.php">Logout</a>
+                    <a class="ac-auth-button" href="/allstar_connect/public/logout.php" title="Sign out of AllStar Connect">Logout</a>
                 <?php else: ?>
-                    <a class="ac-auth-button" href="/allstar_connect/public/login.php">Login</a>
+                    <a class="ac-auth-button" href="/allstar_connect/public/login.php" title="Sign in to enable control actions">Login</a>
                 <?php endif; ?>
             </div>
         </div>
@@ -128,55 +130,56 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                     <p class="ac-section-note">Select a saved Favorite below to load it into Target Node. The star button adds to or edits Favorites.</p>
 
                     <div class="ac-network-tabs" role="group" aria-label="Network">
-                        <button type="button" class="is-active" data-network="ASL" aria-pressed="true" <?= $canWrite ? '' : 'disabled' ?>>AllStarLink</button>
-                        <button type="button" data-network="ECHO" aria-pressed="false" <?= $canWrite ? '' : 'disabled' ?>>EchoLink</button>
+                        <button type="button" class="is-active" data-network="ASL" aria-pressed="true" title="Use AllStarLink for the target connection" <?= $canWrite ? '' : 'disabled' ?>>AllStarLink</button>
+                        <button type="button" data-network="ECHO" aria-pressed="false" title="Use EchoLink for the target connection" <?= $canWrite ? '' : 'disabled' ?>>EchoLink</button>
                     </div>
 
                     <label class="ac-field">
                         <span>Target Node</span>
                         <span class="ac-input-with-action">
-                            <input id="connect-target" type="text" inputmode="text" placeholder="AllStar node or callsign" <?= $canWrite ? '' : 'disabled' ?>>
+                            <input id="connect-target" type="text" inputmode="text" placeholder="AllStar node or callsign" title="Enter a node number or callsign" <?= $canWrite ? '' : 'disabled' ?>>
                             <button type="button" class="ac-inline-search" id="connect-callsign-search" aria-label="Search by node or callsign" title="Search by node or callsign" aria-controls="allstar-connect-callsign-results" <?= $canWrite ? '' : 'disabled' ?>>
                                 <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="M15.5 15.5 21 21"></path></svg>
                             </button>
-                            <button type="button" class="ac-inline-star" id="connect-favorite-star" aria-label="Add manual target to Favorites" <?= $canWrite ? '' : 'disabled' ?>>☆</button>
+                            <button type="button" class="ac-inline-star" id="connect-favorite-star" aria-label="Add manual target to Favorites" title="Add or edit the current target in Favorites" <?= $canWrite ? '' : 'disabled' ?>>☆</button>
                         </span>
                     </label>
                     <div class="ac-callsign-results" id="allstar-connect-callsign-results" hidden></div>
 
                     <label class="ac-field">
                         <span>Link Mode</span>
-                        <select id="connect-mode" <?= $canWrite ? '' : 'disabled' ?>>
+                        <select id="connect-mode" title="Choose Transceive or Local Monitor for this connection" <?= $canWrite ? '' : 'disabled' ?>>
                             <option value="transceive">Transceive</option>
                             <option value="local_monitor">Local Monitor</option>
                         </select>
                     </label>
 
-                    <button type="button" class="ac-primary-button" id="connect-button" <?= $canWrite ? '' : 'disabled' ?>><span aria-hidden="true">↗</span> Connect</button>
+                    <button type="button" class="ac-primary-button" id="connect-button" title="Connect to the current target" <?= $canWrite ? '' : 'disabled' ?>><span aria-hidden="true">↗</span> Connect</button>
 
                     <div class="ac-control-utilities">
                         <div class="ac-control-checks">
-                            <label class="ac-check-control" for="disconnect_before_connect">
+                            <label class="ac-check-control" for="disconnect_before_connect" title="Disconnect existing links before making the next connection">
                                 <input id="disconnect_before_connect" type="checkbox" <?= $canWrite ? '' : 'disabled' ?>>
                                 <span>Disconnect before Connect</span>
                             </label>
-                            <label class="ac-check-control" for="audio_alerts">
+                            <label class="ac-check-control" for="audio_alerts" title="Play local connect and disconnect audio alerts">
                                 <input id="audio_alerts" type="checkbox" checked <?= $canWrite ? '' : 'disabled' ?>>
                                 <span>Audio Alerts</span>
                             </label>
                         </div>
                         <div class="ac-dtmf-control">
                             <label for="dtmf-code">DTMF</label>
-                            <input id="dtmf-code" type="text" inputmode="tel" maxlength="14" placeholder="*70 or 1234#" <?= $canWrite ? '' : 'disabled' ?>>
+                            <input id="dtmf-code" type="text" inputmode="tel" maxlength="14" placeholder="*70 or 1234#" title="Enter a DTMF command to send" <?= $canWrite ? '' : 'disabled' ?>>
                             <button
                                 id="dtmf-favorites-button"
                                 class="ac-dtmf-favorites-button"
                                 type="button"
                                 aria-haspopup="dialog"
                                 aria-controls="allstar-connect-dtmf-favorites-modal"
+                                title="Open saved DTMF Favorites"
                                 <?= $canWrite ? '' : 'disabled' ?>
                             >★ Favorites</button>
-                            <button id="send-dtmf-button" type="button" disabled>Send</button>
+                            <button id="send-dtmf-button" type="button" title="Send the entered DTMF command" disabled>Send</button>
                         </div>
                         <div class="ac-control-status" id="allstar-connect-control-status" role="status" aria-live="polite">Ready</div>
                     </div>
@@ -190,15 +193,15 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                     </div>
                     <div class="ac-dashboard-favorites-head" aria-label="Sort dashboard Favorites">
                         <span class="ac-dashboard-favorites-head-spacer" aria-hidden="true"></span>
-                        <button type="button" class="ac-dashboard-favorites-sort is-active" data-dashboard-favorite-sort="target" aria-sort="ascending">
+                        <button type="button" class="ac-dashboard-favorites-sort is-active" data-dashboard-favorite-sort="target" aria-sort="ascending" title="Sort Favorites by node">
                             <span>Node</span>
                             <span class="ac-dashboard-favorites-sort-indicator" aria-hidden="true">▲</span>
                         </button>
-                        <button type="button" class="ac-dashboard-favorites-sort" data-dashboard-favorite-sort="station" aria-sort="none">
+                        <button type="button" class="ac-dashboard-favorites-sort" data-dashboard-favorite-sort="station" aria-sort="none" title="Sort Favorites by station">
                             <span>Station</span>
                             <span class="ac-dashboard-favorites-sort-indicator" aria-hidden="true">↕</span>
                         </button>
-                        <button type="button" class="ac-dashboard-favorites-sort" data-dashboard-favorite-sort="network" aria-sort="none">
+                        <button type="button" class="ac-dashboard-favorites-sort" data-dashboard-favorite-sort="network" aria-sort="none" title="Sort Favorites by network">
                             <span>Network</span>
                             <span class="ac-dashboard-favorites-sort-indicator" aria-hidden="true">↕</span>
                         </button>
@@ -210,7 +213,7 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                         </div>
                     </div>
                     <div class="ac-favorites-footer">
-                        <a class="ac-view-all ac-manage-favorites" href="/allstar_connect/public/favorites.php">★ Manage Favorites</a>
+                        <a class="ac-view-all ac-manage-favorites" href="/allstar_connect/public/favorites.php" title="Open the full Favorites manager">★ Manage Favorites</a>
                     </div>
                 </section>
             </section>
@@ -288,35 +291,41 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                         <h2>Downstream Nodes</h2>
                         <strong class="ac-downstream-total"><span id="allstar-connect-downstream-count">0</span> total downstream nodes</strong>
                     </div>
-                    <button
-                        type="button"
-                        class="ac-panel-expand"
-                        id="allstar-connect-downstream-expand"
-                        aria-controls="allstar-connect-downstream-window"
-                        aria-expanded="false"
-                        title="Open a movable expanded Downstream Nodes window"
-                    ><span aria-hidden="true">&#10530;</span>Expand</button>
+                    <div class="ac-downstream-title-actions">
+                        <div class="ac-scan-mode" role="group" aria-label="Scanner mode">
+                            <button type="button" class="ac-scan-mode-button is-active" data-scan-mode="downstream" aria-pressed="true" title="Scan connected downstream nodes; this pauses Favorites Scan">Downstream Scan</button>
+                            <button type="button" class="ac-scan-mode-button" data-scan-mode="favorites" aria-pressed="false" title="Scan saved public AllStarLink Favorites for activity; this pauses Downstream Scan">Favorites Scan</button>
+                        </div>
+                        <button
+                            type="button"
+                            class="ac-panel-expand"
+                            id="allstar-connect-downstream-expand"
+                            aria-controls="allstar-connect-downstream-window"
+                            aria-expanded="false"
+                            title="Open a movable expanded Downstream Nodes window"
+                        ><span aria-hidden="true">&#10530;</span>Expand</button>
+                    </div>
                 </div>
 
                 <div class="ac-downstream-toolbar">
                     <div class="ac-downstream-controls">
                         <label class="ac-compact-field">
                             <span>Branch</span>
-                            <select id="allstar-connect-downstream-branch" aria-label="Choose a direct downstream branch">
+                            <select id="allstar-connect-downstream-branch" aria-label="Choose a direct downstream branch" title="Choose which direct downstream branch to display">
                                 <option value="">Automatic</option>
                             </select>
                         </label>
                         <label class="ac-downstream-search">
                             <span class="sr-only">Search downstream nodes</span>
-                            <input id="allstar-connect-downstream-search" type="search" placeholder="Search nodes">
+                            <input id="allstar-connect-downstream-search" type="search" placeholder="Search nodes" title="Filter the displayed downstream nodes">
                         </label>
                     </div>
                     <div class="ac-downstream-filters" role="group" aria-label="Filter downstream connections">
-                        <button type="button" class="allstar-connect-downstream-filter is-active" data-downstream-filter="all" aria-pressed="true">All <strong data-downstream-filter-count="all">0</strong></button>
-                        <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="nodes" aria-pressed="false">Nodes <strong data-downstream-filter-count="nodes">0</strong></button>
-                        <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="private" aria-pressed="false">Private <strong data-downstream-filter-count="private">0</strong></button>
-                        <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="clients" aria-pressed="false">Clients <strong data-downstream-filter-count="clients">0</strong></button>
-                        <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="echolink" aria-pressed="false">EchoLink <strong data-downstream-filter-count="echolink">0</strong></button>
+                        <button type="button" class="allstar-connect-downstream-filter is-active" data-downstream-filter="all" aria-pressed="true" title="Show all downstream connections">All <strong data-downstream-filter-count="all">0</strong></button>
+                        <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="nodes" aria-pressed="false" title="Show public AllStarLink nodes only">Nodes <strong data-downstream-filter-count="nodes">0</strong></button>
+                        <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="private" aria-pressed="false" title="Show private nodes only">Private <strong data-downstream-filter-count="private">0</strong></button>
+                        <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="clients" aria-pressed="false" title="Show Web/Phone clients only">Clients <strong data-downstream-filter-count="clients">0</strong></button>
+                        <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="echolink" aria-pressed="false" title="Show EchoLink connections only">EchoLink <strong data-downstream-filter-count="echolink">0</strong></button>
                     </div>
                 </div>
 
@@ -337,6 +346,7 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                         id="allstar-connect-downstream-mobile-open"
                         aria-controls="allstar-connect-downstream-mobile-sheet"
                         aria-expanded="false"
+                        title="Open the mobile Downstream Nodes view"
                     >View All Downstream</button>
                 </div>
             </section>
@@ -364,9 +374,9 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                 </dl>
                 <p class="ac-detail-description" id="allstar-connect-detail-description">Select a connection, downstream node, or activity entry to see its details.</p>
                 <div class="ac-detail-actions" id="allstar-connect-detail-links">
-                    <a id="allstar-connect-detail-qrz" class="is-disabled" aria-disabled="true" target="_blank" rel="noopener noreferrer">QRZ Page ↗</a>
+                    <a id="allstar-connect-detail-qrz" class="is-disabled" aria-disabled="true" target="_blank" rel="noopener noreferrer" title="Open the selected station on QRZ when available">QRZ Page ↗</a>
                     <button type="button" class="ac-detail-load" id="allstar-connect-detail-load" title="Load this node into Connect" disabled>Load</button>
-                    <button type="button" class="ac-favorite-detail" id="allstar-connect-detail-favorite" disabled>☆ Add to Favorites</button>
+                    <button type="button" class="ac-favorite-detail" id="allstar-connect-detail-favorite" title="Add or edit the selected node in Favorites" disabled>☆ Add to Favorites</button>
                 </div>
                 <span id="allstar-connect-detail-path" hidden>Select a row</span>
             </section>
@@ -393,7 +403,7 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                     <span class="activity-disconnect">Disconnect</span>
                 </div>
                 <div id="allstar-connect-activity" class="allstar-connect-activity-list ac-scroll" aria-live="polite" tabindex="0"></div>
-                <button type="button" id="allstar-connect-activity-toggle" class="ac-activity-toggle" hidden>Show All</button>
+                <button type="button" id="allstar-connect-activity-toggle" class="ac-activity-toggle" title="Show all recorded activity" hidden>Show All</button>
             </section>
         </aside>
     </main>
@@ -412,26 +422,26 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                 <strong id="allstar-connect-downstream-mobile-title">Downstream Nodes</strong>
                 <span><span id="allstar-connect-downstream-mobile-count">0</span> total downstream nodes</span>
             </div>
-            <button type="button" class="ac-mobile-downstream-close" id="allstar-connect-downstream-mobile-close" aria-label="Close Downstream Nodes">×</button>
+            <button type="button" class="ac-mobile-downstream-close" id="allstar-connect-downstream-mobile-close" aria-label="Close Downstream Nodes" title="Close Downstream Nodes">×</button>
         </header>
         <div class="ac-mobile-downstream-sheet-controls">
             <label class="ac-compact-field">
                 <span>Branch</span>
-                <select id="allstar-connect-downstream-mobile-branch" aria-label="Choose a direct downstream branch">
+                <select id="allstar-connect-downstream-mobile-branch" aria-label="Choose a direct downstream branch" title="Choose which direct downstream branch to display">
                     <option value="">Automatic</option>
                 </select>
             </label>
             <label class="ac-downstream-search">
                 <span class="sr-only">Search downstream nodes</span>
-                <input id="allstar-connect-downstream-mobile-search" type="search" placeholder="Search nodes">
+                <input id="allstar-connect-downstream-mobile-search" type="search" placeholder="Search nodes" title="Filter the displayed downstream nodes">
             </label>
         </div>
         <div class="allstar-connect-downstream-filters ac-mobile-downstream-sheet-filters" role="group" aria-label="Filter mobile downstream connections">
-            <button type="button" class="allstar-connect-downstream-filter is-active" data-downstream-filter="all" aria-pressed="true">All <strong data-downstream-filter-count="all">0</strong></button>
-            <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="nodes" aria-pressed="false">Nodes <strong data-downstream-filter-count="nodes">0</strong></button>
-            <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="private" aria-pressed="false">Private <strong data-downstream-filter-count="private">0</strong></button>
-            <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="clients" aria-pressed="false">Clients <strong data-downstream-filter-count="clients">0</strong></button>
-            <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="echolink" aria-pressed="false">EchoLink <strong data-downstream-filter-count="echolink">0</strong></button>
+            <button type="button" class="allstar-connect-downstream-filter is-active" data-downstream-filter="all" aria-pressed="true" title="Show all downstream connections">All <strong data-downstream-filter-count="all">0</strong></button>
+            <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="nodes" aria-pressed="false" title="Show public AllStarLink nodes only">Nodes <strong data-downstream-filter-count="nodes">0</strong></button>
+            <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="private" aria-pressed="false" title="Show private nodes only">Private <strong data-downstream-filter-count="private">0</strong></button>
+            <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="clients" aria-pressed="false" title="Show Web/Phone clients only">Clients <strong data-downstream-filter-count="clients">0</strong></button>
+            <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="echolink" aria-pressed="false" title="Show EchoLink connections only">EchoLink <strong data-downstream-filter-count="echolink">0</strong></button>
         </div>
         <div id="allstar-connect-downstream-mobile" class="allstar-connect-downstream-list ac-mobile-downstream-sheet-list ac-scroll" aria-live="polite" aria-busy="true" tabindex="0">
             <div class="ac-empty-state">
@@ -444,19 +454,19 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
 
     <div class="ac-favorite-modal-backdrop" id="allstar-connect-favorite-modal" hidden aria-hidden="true">
         <section class="ac-favorite-modal-card" role="dialog" aria-modal="true" aria-labelledby="allstar-connect-favorite-title">
-            <button type="button" id="allstar-connect-favorite-close" class="ac-favorite-modal-close" aria-label="Close Favorite window">×</button>
+            <button type="button" id="allstar-connect-favorite-close" class="ac-favorite-modal-close" aria-label="Close Favorite window" title="Close Favorite window">×</button>
             <h2 id="allstar-connect-favorite-title">Add Favorite</h2>
             <p id="allstar-connect-favorite-helper" class="ac-favorite-modal-help">The selected AllStarLink or EchoLink identity will be filled automatically. Change any details before saving.</p>
             <div class="ac-favorite-modal-summary">
-                <label>Network<input id="allstar-connect-favorite-network" readonly placeholder="—"></label>
-                <label>Target<input id="allstar-connect-favorite-target" readonly placeholder="—"></label>
+                <label>Network<input id="allstar-connect-favorite-network" readonly placeholder="—" title="Favorite network"></label>
+                <label>Target<input id="allstar-connect-favorite-target" readonly placeholder="—" title="Favorite target node"></label>
             </div>
             <div class="ac-favorite-dialog">
-                <label>Callsign / Station Name<input id="allstar-connect-favorite-name" maxlength="96" autocomplete="off" placeholder="Callsign or station name"></label>
-                <label>Description<textarea id="allstar-connect-favorite-description" rows="3" maxlength="180" placeholder="Description"></textarea></label>
+                <label>Callsign / Station Name<input id="allstar-connect-favorite-name" maxlength="96" autocomplete="off" placeholder="Callsign or station name" title="Enter or edit the Favorite station name"></label>
+                <label>Description<textarea id="allstar-connect-favorite-description" rows="3" maxlength="180" placeholder="Description" title="Enter or edit the Favorite description"></textarea></label>
                 <div class="ac-favorite-dialog-actions">
-                    <button type="button" class="ac-secondary-button" id="allstar-connect-favorite-cancel">Cancel</button>
-                    <button type="button" class="ac-primary-button" id="allstar-connect-favorite-save" <?= $canWrite ? '' : 'disabled' ?>>Save Favorite</button>
+                    <button type="button" class="ac-secondary-button" id="allstar-connect-favorite-cancel" title="Close without saving changes">Cancel</button>
+                    <button type="button" class="ac-primary-button" id="allstar-connect-favorite-save" title="Save this Favorite" <?= $canWrite ? '' : 'disabled' ?>>Save Favorite</button>
                 </div>
             </div>
         </section>
@@ -465,7 +475,7 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
 
     <div class="ac-favorite-modal-backdrop ac-dtmf-favorites-modal" id="allstar-connect-dtmf-favorites-modal" hidden aria-hidden="true">
         <section class="ac-favorite-modal-card ac-dtmf-favorites-card" role="dialog" aria-modal="true" aria-labelledby="allstar-connect-dtmf-favorites-title">
-            <button type="button" id="allstar-connect-dtmf-favorites-close" class="ac-favorite-modal-close" aria-label="Close DTMF Favorites">×</button>
+            <button type="button" id="allstar-connect-dtmf-favorites-close" class="ac-favorite-modal-close" aria-label="Close DTMF Favorites" title="Close DTMF Favorites">×</button>
             <h2 id="allstar-connect-dtmf-favorites-title">DTMF Favorites</h2>
             <p class="ac-favorite-modal-help">Choose a saved command to place it in the DTMF line. Nothing is sent until you press Send.</p>
 
@@ -475,16 +485,16 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
                 <div class="ac-dtmf-favorite-fields">
                     <label>
                         Name
-                        <input id="allstar-connect-dtmf-favorite-name" type="text" maxlength="64" autocomplete="off" placeholder="Example: Disconnect All">
+                        <input id="allstar-connect-dtmf-favorite-name" type="text" maxlength="64" autocomplete="off" placeholder="Example: Disconnect All" title="Enter a name for this DTMF Favorite">
                     </label>
                     <label>
                         DTMF Command
-                        <input id="allstar-connect-dtmf-favorite-code" type="text" inputmode="tel" maxlength="14" autocomplete="off" placeholder="*70">
+                        <input id="allstar-connect-dtmf-favorite-code" type="text" inputmode="tel" maxlength="14" autocomplete="off" placeholder="*70" title="Enter the DTMF command to save">
                     </label>
                 </div>
                 <div class="ac-favorite-dialog-actions">
-                    <button type="button" class="ac-secondary-button" id="allstar-connect-dtmf-favorite-clear">Clear</button>
-                    <button type="button" class="ac-primary-button" id="allstar-connect-dtmf-favorite-save" <?= $canWrite ? '' : 'disabled' ?>>Add Favorite</button>
+                    <button type="button" class="ac-secondary-button" id="allstar-connect-dtmf-favorite-clear" title="Clear the DTMF Favorite editor">Clear</button>
+                    <button type="button" class="ac-primary-button" id="allstar-connect-dtmf-favorite-save" title="Save this DTMF Favorite" <?= $canWrite ? '' : 'disabled' ?>>Add Favorite</button>
                 </div>
             </div>
         </section>
@@ -494,7 +504,7 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
         <div class="allstar-connect-floating-window-header" id="allstar-connect-connections-window-handle">
             <div class="allstar-connect-floating-window-heading"><strong id="allstar-connect-connections-window-title">Current Connections <span data-connections-count>0</span></strong><span>Local connections · same live data</span></div>
             <span class="allstar-connect-floating-window-move-cue" role="img" aria-label="Hold down the mouse button to drag and move the window" title="Hold down the mouse button to drag and move the window"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M2 12h20M8.5 5.5 12 2l3.5 3.5M8.5 18.5 12 22l3.5-3.5M5.5 8.5 2 12l3.5 3.5M18.5 8.5 22 12l-3.5 3.5"/></svg></span>
-            <button type="button" class="allstar-connect-floating-window-close" id="allstar-connect-connections-window-close" aria-label="Close expanded Current Connections window">×</button>
+            <button type="button" class="allstar-connect-floating-window-close" id="allstar-connect-connections-window-close" aria-label="Close expanded Current Connections window" title="Close expanded Current Connections window">×</button>
         </div>
         <div class="allstar-connect-floating-window-body">
             <div class="ac-connection-table-head ac-floating-table-head" aria-hidden="true"><span>Dir</span><span>Node / Callsign</span><span>Location / Name</span><span>Mode</span><span>Time</span><span>Link</span><span>Actions</span></div>
@@ -507,15 +517,15 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
         <div class="allstar-connect-floating-window-header" id="allstar-connect-downstream-window-handle">
             <div class="allstar-connect-floating-window-heading"><strong id="allstar-connect-downstream-window-title">Downstream Nodes</strong><span>Direct-node groups · Color-coded flow</span></div>
             <span class="allstar-connect-floating-window-move-cue" role="img" aria-label="Hold down the mouse button to drag and move the window" title="Hold down the mouse button to drag and move the window"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M2 12h20M8.5 5.5 12 2l3.5 3.5M8.5 18.5 12 22l3.5-3.5M5.5 8.5 2 12l3.5 3.5M18.5 8.5 22 12l-3.5 3.5"/></svg></span>
-            <button type="button" class="allstar-connect-floating-window-close" id="allstar-connect-downstream-window-close" aria-label="Close expanded Downstream Nodes window">×</button>
+            <button type="button" class="allstar-connect-floating-window-close" id="allstar-connect-downstream-window-close" aria-label="Close expanded Downstream Nodes window" title="Close expanded Downstream Nodes window">×</button>
         </div>
         <div class="allstar-connect-floating-window-body">
             <div class="allstar-connect-downstream-filters allstar-connect-downstream-window-filters" role="group" aria-label="Filter expanded downstream connections">
-                <button type="button" class="allstar-connect-downstream-filter is-active" data-downstream-filter="all" aria-pressed="true">All <strong data-downstream-filter-count="all">0</strong></button>
-                <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="nodes" aria-pressed="false">Nodes <strong data-downstream-filter-count="nodes">0</strong></button>
-                <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="private" aria-pressed="false">Private <strong data-downstream-filter-count="private">0</strong></button>
-                <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="clients" aria-pressed="false">Clients <strong data-downstream-filter-count="clients">0</strong></button>
-                <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="echolink" aria-pressed="false">EchoLink <strong data-downstream-filter-count="echolink">0</strong></button>
+                <button type="button" class="allstar-connect-downstream-filter is-active" data-downstream-filter="all" aria-pressed="true" title="Show all downstream connections">All <strong data-downstream-filter-count="all">0</strong></button>
+                <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="nodes" aria-pressed="false" title="Show public AllStarLink nodes only">Nodes <strong data-downstream-filter-count="nodes">0</strong></button>
+                <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="private" aria-pressed="false" title="Show private nodes only">Private <strong data-downstream-filter-count="private">0</strong></button>
+                <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="clients" aria-pressed="false" title="Show Web/Phone clients only">Clients <strong data-downstream-filter-count="clients">0</strong></button>
+                <button type="button" class="allstar-connect-downstream-filter" data-downstream-filter="echolink" aria-pressed="false" title="Show EchoLink connections only">EchoLink <strong data-downstream-filter-count="echolink">0</strong></button>
             </div>
             <div id="allstar-connect-downstream-expanded" class="allstar-connect-downstream-list allstar-connect-floating-window-list ac-scroll" aria-live="polite" aria-busy="true" tabindex="0"></div>
             <div class="allstar-connect-floating-window-hint">The expanded window shows all filtered branches using the same cached downstream data. Use the lower-right corner to resize.</div>
@@ -526,7 +536,7 @@ $audioVersion = substr((string) @hash_file('sha256', $root . '/public/assets/aud
         <div class="allstar-connect-floating-window-header" id="allstar-connect-activity-window-handle">
             <div class="allstar-connect-floating-window-heading"><strong id="allstar-connect-activity-window-title">Live Activity</strong><span>Newest first · saved locally</span></div>
             <span class="allstar-connect-floating-window-move-cue" role="img" aria-label="Hold down the mouse button to drag and move the window" title="Hold down the mouse button to drag and move the window"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M2 12h20M8.5 5.5 12 2l3.5 3.5M8.5 18.5 12 22l3.5-3.5M5.5 8.5 2 12l3.5 3.5M18.5 8.5 22 12l-3.5 3.5"/></svg></span>
-            <button type="button" class="allstar-connect-floating-window-close" id="allstar-connect-activity-window-close" aria-label="Close expanded Live Activity window">×</button>
+            <button type="button" class="allstar-connect-floating-window-close" id="allstar-connect-activity-window-close" aria-label="Close expanded Live Activity window" title="Close expanded Live Activity window">×</button>
         </div>
         <div class="allstar-connect-floating-window-body">
             <div class="allstar-connect-activity-legend allstar-connect-floating-window-legend"><span class="activity-key">Key</span><span class="activity-unkey">Unkey</span><span class="activity-connect">Connect</span><span class="activity-disconnect">Disconnect</span></div>

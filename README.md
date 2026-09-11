@@ -39,6 +39,13 @@ AllStar Connect reads live Asterisk and app_rpt information through restricted h
 
 The dashboard refreshes local connection status and keeps its downstream and EchoLink identity data in bounded local caches. Successful high-frequency polling requests are excluded from Apache's normal access log, while errors and control requests remain logged.
 
+### Scanner modes
+
+- **Downstream Scan** - The normal/default mode. Scans the connected AllStarLink tree and updates Downstream Nodes.
+- **Favorites Scan** - Pauses Downstream Scan and checks saved public AllStarLink Favorites for activity. Detected activity is highlighted and moved to the top of the Dashboard Favorites list.
+
+Only one scanner runs at a time. Switching back to **Downstream Scan** clears the temporary Favorites activity state and resumes downstream scanning.
+
 ### Callsign search
 
 In **Connect - Target**, type a callsign and press **Enter** or click the **magnifying glass**. AllStar Connect searches both AllStarLink and EchoLink. AllStarLink nodes are shown under the AllStarLink tab and EchoLink matches under EchoLink. Select the station you want, then connect to it or add it to Favorites. Press **Escape** to clear the search and results.

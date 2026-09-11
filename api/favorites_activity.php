@@ -5,14 +5,10 @@ require_once dirname(__DIR__) . '/app/Support/AppSession.php';
 \AllStarConnect\Support\AppSession::start();
 session_write_close();
 
-require_once dirname(__DIR__) . '/app/Support/Config.php';
 require_once dirname(__DIR__) . '/app/Support/ScanMode.php';
-require_once dirname(__DIR__) . '/src/Monitor.php';
-require_once dirname(__DIR__) . '/src/Downstream.php';
+require_once dirname(__DIR__) . '/src/FavoritesScanner.php';
 
-use AllStarConnect\Downstream;
-use AllStarConnect\Monitor;
-use AllStarConnect\Support\Config;
+use AllStarConnect\FavoritesScanner;
 use AllStarConnect\Support\ScanMode;
 
 header('Content-Type: application/json; charset=UTF-8');
@@ -23,7 +19,7 @@ $executionLock = null;
 try {
     $mode = ScanMode::current();
 
-    if (($mode['mode'] ?? ScanMode::DOWNSTREAM) !== ScanMode::DOWNSTREAM) {
+    if (($mode['mode'] ?? ScanMode::DOWNSTREAM) !== ScanMode::FAVORITES) {
         echo json_encode([
             'ok' => true,
             'paused' => true,
@@ -32,7 +28,7 @@ try {
         return;
     }
 
-    $executionLock = ScanMode::acquireExecution(ScanMode::DOWNSTREAM);
+    $executionLock = ScanMode::acquireExecution(ScanMode::FAVORITES);
 
     if ($executionLock === null) {
         echo json_encode([
@@ -44,15 +40,15 @@ try {
     }
 
     $startedMode = ScanMode::current();
-    $config = new Config(dirname(__DIR__) . '/config.ini');
-    $local = (new Monitor($config))->snapshot();
-    $connections = is_array($local['connections'] ?? null) ? $local['connections'] : [];
-    $downstream = (new Downstream($config))->snapshot($connections);
+    $generation = (int) ($startedMode['generation'] ?? 0);
+
+    $data = (new FavoritesScanner())->snapshot($generation);
+
     $finishedMode = ScanMode::current();
 
     if (
-        ($finishedMode['mode'] ?? '') !== ScanMode::DOWNSTREAM
-        || (int) ($finishedMode['generation'] ?? 0) !== (int) ($startedMode['generation'] ?? 0)
+        ($finishedMode['mode'] ?? '') !== ScanMode::FAVORITES
+        || (int) ($finishedMode['generation'] ?? 0) !== $generation
     ) {
         echo json_encode([
             'ok' => true,
@@ -64,14 +60,14 @@ try {
             'ok' => true,
             'paused' => false,
             'scan_mode' => $finishedMode,
-            'data' => $downstream,
+            'data' => $data,
         ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     }
 } catch (Throwable $error) {
     http_response_code(500);
     echo json_encode([
         'ok' => false,
-        'message' => 'AllStar Connect downstream status is unavailable.',
+        'message' => 'Favorites activity scanner is unavailable.',
     ], JSON_UNESCAPED_SLASHES);
 } finally {
     ScanMode::releaseExecution($executionLock);

@@ -138,6 +138,61 @@ html[data-theme="light"] .ac-card-title-row { background: linear-gradient(180deg
 .ac-card-title-row h3,
 .ac-subhead h3,
 .ac-connect-section h3 { margin: 0; color: var(--ac-text); }
+.ac-downstream-title-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.ac-scan-mode {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px;
+    background: #081426;
+    border: 1px solid #334d70;
+    border-radius: 7px;
+}
+
+.ac-scan-mode-button {
+    min-height: 27px;
+    padding: 0 9px;
+    color: var(--ac-muted);
+    background: transparent;
+    border: 0;
+    border-radius: 5px;
+    font-size: 9px;
+    font-weight: 850;
+    white-space: nowrap;
+}
+
+.ac-scan-mode-button:hover:not(:disabled),
+.ac-scan-mode-button:focus-visible:not(:disabled) {
+    color: var(--ac-text);
+    background: rgba(92,169,255,.12);
+}
+
+.ac-scan-mode-button.is-active {
+    color: #ffffff;
+    background: linear-gradient(180deg,#2e85d4,#176db9);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.14);
+}
+
+.ac-scan-mode-button:disabled {
+    cursor: default;
+}
+
+html[data-theme="light"] .ac-scan-mode {
+    background: #edf4fa;
+    border-color: #aebfd1;
+}
+
+html[data-theme="light"] .ac-scan-mode-button.is-active {
+    color: #ffffff;
+    background: linear-gradient(180deg,#2e85d4,#176db9);
+}
+
 .ac-card-title-row h2 { font-size: 17px; font-weight: 790; }
 .ac-card-title-row p { margin: 2px 0 0; color: var(--ac-muted); font-size: 11px; }
 .ac-title-with-count { gap: 9px; min-width: 0; }
@@ -1429,6 +1484,29 @@ html[data-theme="light"] .ac-dashboard-favorite { border-bottom-color: #d5e0ea; 
 html[data-theme="light"] .ac-dashboard-favorite:hover,
 html[data-theme="light"] .ac-dashboard-favorite:focus-visible { background: #eef6ff; }
 
+/* Favorites Scan activity indication. Red means activity was detected
+   recently by Stats and does not necessarily mean the node is keyed now. */
+.ac-dashboard-favorite.activity-detected,
+.ac-dashboard-favorite.activity-detected:hover,
+.ac-dashboard-favorite.activity-detected:focus-visible {
+    color: #ffffff;
+    background: #c62828;
+    border-bottom-color: #ef6a6a;
+    outline-color: #ff8a8a;
+}
+
+.ac-dashboard-favorite.activity-detected strong,
+.ac-dashboard-favorite.activity-detected span:not(.ac-dashboard-favorite-star),
+.ac-dashboard-favorite.activity-detected small {
+    color: #ffffff;
+}
+
+html[data-theme="light"] .ac-dashboard-favorite.activity-detected,
+html[data-theme="light"] .ac-dashboard-favorite.activity-detected:hover,
+html[data-theme="light"] .ac-dashboard-favorite.activity-detected:focus-visible {
+    background: #c62828;
+}
+
 
 /* Local-node details and automatic Favorite identity status. */
 .ac-local-node-pill {
@@ -2476,4 +2554,31 @@ html[data-theme="light"] .ac-dtmf-favorite-fields label { color: #102d48; }
         min-height: 32px;
         padding-inline: 4px;
     }
+}
+
+
+@media (max-width: 820px) {
+    .ac-downstream-card > .ac-card-title-row {
+        flex-wrap: wrap;
+    }
+
+    .ac-downstream-title-actions {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .ac-scan-mode {
+        width: 100%;
+    }
+
+    .ac-scan-mode-button {
+        flex: 1 1 50%;
+    }
+}
+
+/* Favorites Scan: underline the node most recently checked. */
+.ac-dashboard-favorite.is-scanning > strong {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 2px;
 }

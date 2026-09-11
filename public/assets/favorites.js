@@ -184,14 +184,14 @@
         }
         elements.body.innerHTML = items.map((item) => `
             <tr data-network="${escapeHtml(item.network)}" data-target="${escapeHtml(item.target)}">
-                <td><button type="button" class="ac-favorite-row-edit" data-edit-favorite ${canWrite ? '' : 'disabled'}>${escapeHtml(item.target)}</button></td>
+                <td><button type="button" class="ac-favorite-row-edit" data-edit-favorite title="Edit this Favorite" ${canWrite ? '' : 'disabled'}>${escapeHtml(item.target)}</button></td>
                 <td><span class="ac-favorite-network-badge is-${String(item.network || 'ASL').toLowerCase()}">${escapeHtml(networkLabel(item.network))}</span></td>
                 <td>${escapeHtml(item.name)}</td>
                 <td>${escapeHtml(item.description)}</td>
                 <td class="ac-favorite-table-actions">
-                    <a class="ac-small-button" href="/allstar_connect/public/?network=${encodeURIComponent(item.network)}&target=${encodeURIComponent(item.target)}">Load</a>
-                    <button type="button" class="ac-small-button" data-edit-favorite ${canWrite ? '' : 'disabled'}>Edit</button>
-                    <button type="button" class="ac-small-button is-danger" data-delete-favorite ${canWrite ? '' : 'disabled'}>Remove</button>
+                    <a class="ac-small-button" href="/allstar_connect/public/?network=${encodeURIComponent(item.network)}&target=${encodeURIComponent(item.target)}" title="Load this Favorite on the Dashboard">Load</a>
+                    <button type="button" class="ac-small-button" data-edit-favorite title="Edit this Favorite" ${canWrite ? '' : 'disabled'}>Edit</button>
+                    <button type="button" class="ac-small-button is-danger" data-delete-favorite title="Remove this Favorite" ${canWrite ? '' : 'disabled'}>Remove</button>
                 </td>
             </tr>`).join('');
     }
@@ -449,6 +449,9 @@
             action.textContent = saved
                 ? 'Edit Saved Favorite'
                 : '+ Add Favorite';
+            action.title = saved
+                ? `Edit saved ${networkLabel(network)} ${target}`
+                : `Add ${networkLabel(network)} ${target} to Favorites`;
 
             actions.appendChild(action);
             result.appendChild(actions);

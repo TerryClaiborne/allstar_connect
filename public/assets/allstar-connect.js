@@ -8,6 +8,8 @@
 
     const localEndpoint = String(page.dataset.statusEndpoint || '').trim();
     const downstreamEndpoint = String(page.dataset.downstreamEndpoint || '').trim();
+    const scanModeEndpoint = String(page.dataset.scanModeEndpoint || '').trim();
+    const favoritesActivityEndpoint = String(page.dataset.favoritesActivityEndpoint || '').trim();
     const echoLinkEndpoint = String(page.dataset.echolinkEndpoint || '').trim();
     const controlEndpoint = String(page.dataset.controlEndpoint || '').trim();
     const linkEndpoint = String(page.dataset.linkEndpoint || '').trim();
@@ -42,6 +44,7 @@
         downstreamExpand: document.getElementById('allstar-connect-downstream-expand'),
         downstreamCount: document.getElementById('allstar-connect-downstream-count'),
         downstreamNote: document.getElementById('allstar-connect-downstream-note'),
+        scanModeButtons: Array.from(document.querySelectorAll('[data-scan-mode]')),
         downstreamBranch: document.getElementById('allstar-connect-downstream-branch'),
         downstreamSearch: document.getElementById('allstar-connect-downstream-search'),
         downstreamMobile: document.getElementById('allstar-connect-downstream-mobile'),
@@ -129,6 +132,18 @@
         lastLocalPollTick: Date.now(),
         downstreamLoading: false,
         downstreamController: null,
+        favoritesActivityTimer: 0,
+        favoritesActivityLoading: false,
+        favoritesActivityController: null,
+        scanModeController: null,
+        scanMode: 'downstream',
+        scanGeneration: 0,
+        scanTransitioning: false,
+        scanCooldownUntil: 0,
+        favoritesActivitySession: '',
+        favoritesActivityCheckedNode: '',
+        favoriteActivityLevels: new Map(),
+        favoriteActivityOrder: new Map(),
         echoLinkLoading: false,
         echoLinkTimer: 0,
         echoLinkNextAllowed: 0,
@@ -286,9 +301,9 @@
                         <strong>${escapeHtml(label)}</strong>
                         <span>${escapeHtml(item.code)}</span>
                     </div>
-                    <button type="button" class="ac-dtmf-favorite-row-action is-load" data-dtmf-select="${escapeHtml(item.code)}">Load</button>
-                    <button type="button" class="ac-dtmf-favorite-row-action" data-dtmf-edit="${escapeHtml(item.code)}">Edit</button>
-                    <button type="button" class="ac-dtmf-favorite-row-action is-danger" data-dtmf-delete="${escapeHtml(item.code)}">Remove</button>
+                    <button type="button" class="ac-dtmf-favorite-row-action is-load" data-dtmf-select="${escapeHtml(item.code)}" title="Load this DTMF Favorite into the DTMF field">Load</button>
+                    <button type="button" class="ac-dtmf-favorite-row-action" data-dtmf-edit="${escapeHtml(item.code)}" title="Edit this DTMF Favorite">Edit</button>
+                    <button type="button" class="ac-dtmf-favorite-row-action is-danger" data-dtmf-delete="${escapeHtml(item.code)}" title="Remove this DTMF Favorite">Remove</button>
                 </div>`;
         }).join('');
     }
@@ -877,6 +892,7 @@
             button.dataset.callsignNetwork = networkCode;
             button.dataset.callsignTarget = target;
             button.dataset.callsignCall = call;
+            button.title = `Use ${networkDisplay(networkCode)} ${target} — ${call}`;
 
             const title = document.createElement('strong');
             title.textContent = `${target} — ${call}`;
@@ -1307,15 +1323,51 @@
             return;
         }
 
-        const sorted = [...state.favorites].sort(compareDashboardFavorites);
+        const sorted = [...state.favorites].sort((left, right) => {
+            if (state.scanMode === 'favorites') {
+                const leftTarget = String(left.target || '');
+                const rightTarget = String(right.target || '');
+                const leftActive = Number(state.favoriteActivityLevels.get(leftTarget) || 0) > 5;
+                const rightActive = Number(state.favoriteActivityLevels.get(rightTarget) || 0) > 5;
 
-        elements.favoritesList.innerHTML = sorted.map((item) => `
-            <button type="button" class="ac-dashboard-favorite" data-load-favorite="${escapeHtml(favoriteKey(item.network, item.target))}">
+                if (leftActive || rightActive) {
+                    const leftOrder = Number(state.favoriteActivityOrder.get(leftTarget) || 0);
+                    const rightOrder = Number(state.favoriteActivityOrder.get(rightTarget) || 0);
+
+                    if (leftOrder !== rightOrder) {
+                        return rightOrder - leftOrder;
+                    }
+                }
+
+                if (leftActive !== rightActive) {
+                    return leftActive ? -1 : 1;
+                }
+            }
+
+            return compareDashboardFavorites(left, right);
+        });
+
+        elements.favoritesList.innerHTML = sorted.map((item) => {
+            const target = String(item.target || '');
+            const txAverage = state.scanMode === 'favorites'
+                ? Number(state.favoriteActivityLevels.get(target) || 0)
+                : 0;
+            const activityDetected = txAverage > 5;
+            const title = activityDetected
+                ? 'Recent activity detected. Reporting may be delayed. Click to load this Favorite.'
+                : 'Click to load this Favorite.';
+
+            const scanning = state.scanMode === 'favorites'
+                && state.favoritesActivityCheckedNode === target;
+
+            return `
+            <button type="button" class="ac-dashboard-favorite${activityDetected ? ' activity-detected' : ''}${scanning ? ' is-scanning' : ''}" title="${escapeHtml(title)}" data-favorite-target="${escapeHtml(target)}" data-load-favorite="${escapeHtml(favoriteKey(item.network, item.target))}">
                 <span class="ac-dashboard-favorite-star">★</span>
                 <strong>${escapeHtml(item.target)}</strong>
                 <span>${escapeHtml(item.name || item.description || networkDisplay(item.network))}</span>
-                <small>${escapeHtml(networkDisplay(item.network))}</small>
-            </button>`).join('');
+                <small>${escapeHtml(activityDetected ? 'ACTIVITY DETECTED' : networkDisplay(item.network))}</small>
+            </button>`;
+        }).join('');
     }
 
     async function refreshFavorites() {
@@ -2650,7 +2702,7 @@
             const disconnectDisabled = !canWrite || !linkEndpoint || pendingDisconnect;
             const disconnectTitle = kind === 'iax' ? 'Exact true IAX channel hangup' : (kind === 'client' ? 'Exact IAX/Web client disconnect' : 'Exact row disconnect');
             return `
-                <div role="button" tabindex="0" class="allstar-connect-connection-row${selected}${keyed}" data-connection-key="${escapeHtml(item.key)}">
+                <div role="button" tabindex="0" class="allstar-connect-connection-row${selected}${keyed}" data-connection-key="${escapeHtml(item.key)}" title="Click to view this connection in Node Details">
                     <span class="ac-connection-dir${directionClass}" title="${directionTitle}">${directionArrow}</span>
                     <span class="ac-connection-node">
                         <strong>${escapeHtml(primaryNodeLabel)}</strong>
@@ -2663,7 +2715,7 @@
                     <span class="ac-row-actions">
                         <button type="button" class="ac-favorite-star" data-favorite-key="${escapeHtml(item.key)}" title="${savedFavorite ? 'Edit Favorite' : 'Add Favorite'}" aria-label="${savedFavorite ? 'Edit Favorite' : 'Add Favorite'}" ${canFavorite ? '' : 'disabled'}>${savedFavorite ? '★' : '☆'}</button>
                         <button type="button" class="ac-row-action ac-disconnect-button" data-disconnect-key="${escapeHtml(item.key)}" title="${escapeHtml(disconnectTitle)}" ${disconnectDisabled ? 'disabled' : ''}>${pendingDisconnect ? '…' : '× Disconnect'}</button>
-                        <select class="ac-row-action ac-mode-select" data-mode-key="${escapeHtml(item.key)}" aria-label="Link mode" ${(!canMode || pendingMode) ? 'disabled' : ''}>
+                        <select class="ac-row-action ac-mode-select" data-mode-key="${escapeHtml(item.key)}" aria-label="Link mode" title="Change this connection between Transceive and Local Monitor" ${(!canMode || pendingMode) ? 'disabled' : ''}>
                             <option value="transceive"${modeValue === 'transceive' ? ' selected' : ''}>Transceive</option>
                             <option value="local_monitor"${modeValue === 'local_monitor' ? ' selected' : ''}>Local Monitor</option>
                         </select>
@@ -2873,6 +2925,9 @@
         if (elements.activityToggle) {
             elements.activityToggle.hidden = !mobileLimited;
             elements.activityToggle.textContent = state.activityExpanded ? 'Show Recent' : 'Show All';
+            elements.activityToggle.title = state.activityExpanded
+                ? 'Show only the most recent activity entries'
+                : 'Show all recorded activity entries';
             elements.activityToggle.setAttribute('aria-expanded', state.activityExpanded ? 'true' : 'false');
         }
 
@@ -2890,7 +2945,7 @@
             const duration = Number(event.duration_seconds || 0);
             const durationText = event.type === 'unkey' && duration > 0 ? ` · ${duration}s` : '';
             return `
-                <button type="button" class="allstar-connect-activity-row${selected}" data-activity-id="${escapeHtml(eventKey)}">
+                <button type="button" class="allstar-connect-activity-row${selected}" data-activity-id="${escapeHtml(eventKey)}" title="Click to view this activity entry in Node Details">
                     <span class="allstar-connect-activity-type ${activityClass(event.type)}">${activityLabel(event.type)}</span>
                     <span class="allstar-connect-activity-main">
                         <strong>${escapeHtml(event.node || event.callsign || identity)}</strong>
@@ -3060,6 +3115,195 @@
         }
     }
 
+    function updateFavoriteScanMarker(target = '') {
+        state.favoritesActivityCheckedNode = String(target || '');
+        const buttons = elements.favoritesList
+            ? elements.favoritesList.querySelectorAll('[data-favorite-target]')
+            : [];
+
+        for (const button of buttons) {
+            button.classList.toggle(
+                'is-scanning',
+                state.scanMode === 'favorites'
+                    && String(button.dataset.favoriteTarget || '')
+                        === state.favoritesActivityCheckedNode
+            );
+        }
+    }
+
+    function scheduleFavoritesActivity(delayMs = 250) {
+        if (
+            state.scanMode !== 'favorites'
+            || state.scanTransitioning
+            || !favoritesActivityEndpoint
+            || state.favoritesActivityLoading
+            || state.favoritesActivityTimer
+        ) {
+            return;
+        }
+
+        // Start the Favorites activity loop promptly and do not deliberately
+        // pause it merely because the tab is in the background. Browsers may
+        // still throttle background timers.
+        const delay = Math.max(0, Number(delayMs) || 0);
+        state.favoritesActivityTimer = window.setTimeout(() => {
+            state.favoritesActivityTimer = 0;
+            refreshFavoritesActivity();
+        }, delay);
+    }
+
+    function favoriteActivityMapsEqual(left, right) {
+        if (left.size !== right.size) return false;
+        for (const [key, value] of left) {
+            if (Number(right.get(key) || 0) !== Number(value || 0)) return false;
+        }
+        return true;
+    }
+
+    function syncFavoriteActivitySamples(samples) {
+        const levels = new Map();
+        const order = new Map();
+
+        for (const favorite of state.favorites) {
+            const target = String(favorite?.target || '');
+            const sample = target && samples && typeof samples === 'object'
+                ? samples[target]
+                : null;
+            if (!sample || sample.ok === false) continue;
+
+            const txAverage = Math.max(0, Number(sample.tx_average || 0));
+            if (txAverage <= 5) continue;
+
+            levels.set(target, txAverage);
+            order.set(
+                target,
+                Math.max(
+                    0,
+                    Number(sample.last_activity_at || 0),
+                    Number(sample.sampled_at || 0)
+                )
+            );
+        }
+
+        const changed = !favoriteActivityMapsEqual(state.favoriteActivityLevels, levels)
+            || !favoriteActivityMapsEqual(state.favoriteActivityOrder, order);
+
+        state.favoriteActivityLevels = levels;
+        state.favoriteActivityOrder = order;
+        return changed;
+    }
+
+    async function refreshFavoritesActivity() {
+        if (
+            state.scanMode !== 'favorites'
+            || state.scanTransitioning
+            || !favoritesActivityEndpoint
+            || state.favoritesActivityLoading
+        ) {
+            return;
+        }
+
+        state.favoritesActivityLoading = true;
+        const controller = new AbortController();
+        state.favoritesActivityController = controller;
+        const timeout = window.setTimeout(() => controller.abort(), 12000);
+        let nextDelay = 1000;
+
+        try {
+            const response = await fetch(`${favoritesActivityEndpoint}?_=${Date.now()}`, {
+                cache: 'no-store',
+                credentials: 'same-origin',
+                signal: controller.signal,
+            });
+            const payload = await response.json();
+
+            if (state.favoritesActivityController !== controller) {
+                return;
+            }
+
+            if (payload?.scan_mode) {
+                adoptScanMode(payload.scan_mode);
+            }
+
+            if (state.scanMode !== 'favorites' || payload?.paused) {
+                return;
+            }
+
+            if (!response.ok || !payload?.ok || !payload?.data) {
+                throw new Error(payload?.message || 'Favorites activity request failed.');
+            }
+
+            if (Number(payload.data.generation || 0) !== state.scanGeneration) {
+                return;
+            }
+
+            const sessionId = String(payload.data.session_id || '');
+            if (sessionId && sessionId !== state.favoritesActivitySession) {
+                state.favoritesActivitySession = sessionId;
+                clearFavoriteActivity();
+            }
+
+            const samples = payload.data.samples && typeof payload.data.samples === 'object'
+                ? payload.data.samples
+                : {};
+
+            // The Favorites scanner is node-wide. Every browser must consume the
+            // complete authoritative sample set on every response. Processing
+            // only the node checked by this browser causes other tabs/phones to
+            // miss activity and quiet-state updates performed by another client.
+            const activityChanged = syncFavoriteActivitySamples(samples);
+
+            const lastCheckedNode = String(
+                payload.data.last_checked_node
+                || payload.data.checked_node
+                || ''
+            );
+            if (lastCheckedNode) {
+                updateFavoriteScanMarker(lastCheckedNode);
+            }
+
+            if (activityChanged) {
+                renderDashboardFavorites();
+            }
+
+            nextDelay = Math.max(
+                250,
+                Math.min(15000, Number(payload.data.next_interval_ms || 1000))
+            );
+        } catch (error) {
+            if (state.favoritesActivityController !== controller) {
+                return;
+            }
+            // Local API failures do not change activity state. Retry without
+            // disturbing Current Connections or control requests.
+            nextDelay = 1000;
+        } finally {
+            window.clearTimeout(timeout);
+
+            if (state.favoritesActivityController === controller) {
+                state.favoritesActivityController = null;
+                state.favoritesActivityLoading = false;
+
+                if (
+                    state.scanMode === 'favorites'
+                    && !state.scanTransitioning
+                ) {
+                    scheduleFavoritesActivity(nextDelay);
+                }
+            }
+        }
+    }
+
+    function refreshActiveScanner() {
+        if (state.scanTransitioning) return;
+
+        if (state.scanMode === 'favorites') {
+            scheduleFavoritesActivity(250);
+        } else if (!document.hidden) {
+            refreshDownstream();
+        }
+    }
+
     function downstreamPath(item) {
         if (!item) return '';
         const directNode = String(item.direct_node || '').trim();
@@ -3198,8 +3442,8 @@
             if (!select.value && roots.length) select.value = String(roots[0].node || '');
             const selectedOption = select.options[select.selectedIndex] || null;
             select.title = selectedOption
-                ? String(selectedOption.dataset.fullLabel || selectedOption.textContent || '')
-                : '';
+                ? `Show branch: ${String(selectedOption.dataset.fullLabel || selectedOption.textContent || '')}`
+                : 'Choose which direct downstream branch to display';
         }
 
         select.disabled = roots.length === 0 && remoteCount === 0;
@@ -3227,12 +3471,12 @@
                 const selectedOption =
                     mobileSelect.options[mobileSelect.selectedIndex] || null;
                 mobileSelect.title = selectedOption
-                    ? String(
+                    ? `Show branch: ${String(
                         selectedOption.dataset.fullLabel
                         || selectedOption.textContent
                         || ''
-                    )
-                    : '';
+                    )}`
+                    : 'Choose which direct downstream branch to display';
             }
             mobileSelect.disabled = sourceSelect.disabled;
         }
@@ -3282,7 +3526,7 @@
         const nested = depth >= 2 ? ' is-nested' : '';
         const keyedBadge = item.keyed ? '<span class="ac-ds-keyed">KEYED</span>' : '';
         return `
-            <button type="button" class="ac-ds-row${depthClass}${nested}${downstreamTypeClass(item)}${selected}${keyed}" data-downstream-key="${escapeHtml(item.key)}">
+            <button type="button" class="ac-ds-row${depthClass}${nested}${downstreamTypeClass(item)}${selected}${keyed}" data-downstream-key="${escapeHtml(item.key)}" title="Click to view this downstream connection in Node Details">
                 <span class="ac-ds-branch" aria-hidden="true">${branch}</span>
                 <span class="ac-ds-dot" aria-hidden="true"></span>
                 <span class="ac-ds-main">
@@ -3304,7 +3548,7 @@
             : '<div class="ac-ds-none">No downstream children are reported for this direct node.</div>';
         return `
             <section class="ac-ds-group" data-direct-node="${escapeHtml(root.node)}" style="--ds-branch:${color}">
-                <button type="button" class="ac-ds-root${selected}${keyed}" data-downstream-root-key="${escapeHtml(root.key)}">
+                <button type="button" class="ac-ds-root${selected}${keyed}" data-downstream-root-key="${escapeHtml(root.key)}" title="Click to view this direct node in Node Details">
                     <span class="ac-ds-dot" aria-hidden="true"></span>
                     <span class="ac-ds-main"><strong>${escapeHtml(root.node)}</strong><span>${escapeHtml(identity)}</span></span>
                     <span class="ac-ds-state">${keyedBadge}<span class="ac-ds-count">${children.length} ${children.length === 1 ? 'connection' : 'connections'}</span></span>
@@ -3319,7 +3563,7 @@
             const keyed = item.keyed ? ' is-keyed' : '';
             const branch = index === clients.length - 1 ? '└─' : '├─';
             return `
-                <button type="button" class="ac-ds-row ac-ds-client${selected}${keyed}" data-remote-client-key="${escapeHtml(item.key)}">
+                <button type="button" class="ac-ds-row ac-ds-client${selected}${keyed}" data-remote-client-key="${escapeHtml(item.key)}" title="Click to view this Web/Phone client in Node Details">
                     <span class="ac-ds-branch" aria-hidden="true">${branch}</span><span class="ac-ds-dot" aria-hidden="true"></span>
                     <span class="ac-ds-main"><strong>${escapeHtml(item.node)}</strong><span>${escapeHtml(downstreamRowIdentity(item))}</span></span>
                     <span class="ac-ds-state">${item.keyed ? '<span class="ac-ds-keyed">KEYED</span>' : ''}<span class="ac-ds-chip ac-ds-chip-client">Web/Phone</span></span>
@@ -3671,6 +3915,9 @@
         if (elements.detailFavorite) {
             elements.detailFavorite.disabled = !canFavorite;
             elements.detailFavorite.textContent = savedFavorite ? '★ Edit Favorite' : '☆ Add to Favorites';
+            elements.detailFavorite.title = savedFavorite
+                ? 'Edit the selected saved Favorite'
+                : 'Add the selected node to Favorites';
             elements.detailFavorite.hidden = !canWrite;
         }
         if (elements.detailLinks) elements.detailLinks.hidden = false;
@@ -3726,6 +3973,7 @@
         if (elements.detailFavorite) {
             elements.detailFavorite.hidden = !canWrite;
             elements.detailFavorite.disabled = true;
+            elements.detailFavorite.title = 'Select a public node or resolved EchoLink station first';
         }
         if (elements.detailLinks) elements.detailLinks.hidden = false;
     }
@@ -3977,12 +4225,220 @@
     }
 
     function resetSuspendedRequests() {
+        // Local/Downstream polling intentionally pauses with a hidden page.
+        // Favorites Scan runs independently and must not be aborted/restarted
+        // just because the page returns to the foreground.
         state.localController?.abort();
         state.downstreamController?.abort();
         state.localController = null;
         state.downstreamController = null;
         state.localLoading = false;
         state.downstreamLoading = false;
+    }
+
+    function updateScanModeControls() {
+        for (const button of elements.scanModeButtons) {
+            const mode = String(button.dataset.scanMode || '');
+            const active = mode === state.scanMode;
+
+            button.classList.toggle('is-active', active);
+            button.setAttribute('aria-pressed', active ? 'true' : 'false');
+            button.disabled = !canWrite || state.scanTransitioning;
+        }
+    }
+
+    function clearFavoriteActivity() {
+        updateFavoriteScanMarker('');
+        const hadActivity = state.favoriteActivityLevels.size > 0
+            || state.favoriteActivityOrder.size > 0;
+
+        state.favoriteActivityLevels.clear();
+        state.favoriteActivityOrder.clear();
+
+        if (hadActivity) {
+            renderDashboardFavorites();
+        }
+    }
+
+    function stopScannerRequests() {
+        window.clearInterval(state.downstreamTimer);
+        window.clearTimeout(state.favoritesActivityTimer);
+        state.downstreamTimer = 0;
+        state.favoritesActivityTimer = 0;
+
+        state.downstreamController?.abort();
+        state.favoritesActivityController?.abort();
+
+        state.downstreamController = null;
+        state.favoritesActivityController = null;
+        state.downstreamLoading = false;
+        state.favoritesActivityLoading = false;
+    }
+
+    function adoptScanMode(snapshot) {
+        const mode = String(snapshot?.mode || '').toLowerCase();
+        if (!['downstream', 'favorites'].includes(mode)) return false;
+
+        const generation = Math.max(0, Number(snapshot?.generation || 0));
+        const changed = mode !== state.scanMode || generation !== state.scanGeneration;
+
+        if (!changed) {
+            updateScanModeControls();
+            return false;
+        }
+
+        stopScannerRequests();
+
+        state.scanMode = mode;
+        state.scanGeneration = generation;
+
+        if (mode !== 'favorites') {
+            clearFavoriteActivity();
+        }
+
+        updateScanModeControls();
+        schedule();
+        if (mode === 'favorites') {
+            scheduleFavoritesActivity(250);
+        } else {
+            window.setTimeout(refreshDownstream, 0);
+        }
+        return true;
+    }
+
+    async function initializeScanMode() {
+        if (!scanModeEndpoint) return;
+
+        const locationUrl = new URL(window.location.href);
+        const returningFromFavoritesManager = locationUrl.searchParams.get('return') === 'favorites-manager';
+        if (returningFromFavoritesManager) {
+            locationUrl.searchParams.delete('return');
+            window.history.replaceState(window.history.state, '', `${locationUrl.pathname}${locationUrl.search}${locationUrl.hash}`);
+            await refreshScanMode();
+            return;
+        }
+
+        if (!canWrite) {
+            await refreshScanMode();
+            return;
+        }
+
+        try {
+            const response = await fetch(scanModeEndpoint, {
+                method: 'POST',
+                cache: 'no-store',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': csrfToken,
+                },
+                body: JSON.stringify({ mode: 'downstream' }),
+            });
+
+            const payload = await response.json();
+
+            if (!response.ok || !payload?.ok || !payload?.data) {
+                throw new Error(payload?.message || 'Unable to initialize scanner mode.');
+            }
+
+            adoptScanMode(payload.data);
+        } catch (error) {
+            await refreshScanMode();
+        }
+    }
+
+    async function refreshScanMode() {
+        if (!scanModeEndpoint || document.hidden) return;
+
+        try {
+            const response = await fetch(`${scanModeEndpoint}?_=${Date.now()}`, {
+                cache: 'no-store',
+                credentials: 'same-origin',
+            });
+            const payload = await response.json();
+
+            if (!response.ok || !payload?.ok || !payload?.data) {
+                throw new Error(payload?.message || 'Scanner mode request failed.');
+            }
+
+            adoptScanMode(payload.data);
+        } catch (error) {
+            // Keep the last known scanner mode and retry through normal polling.
+        }
+    }
+
+    async function changeScanMode(requestedMode) {
+        const mode = String(requestedMode || '').toLowerCase();
+
+        if (
+            !canWrite
+            || state.scanTransitioning
+            || mode === state.scanMode
+            || !['downstream', 'favorites'].includes(mode)
+            || Date.now() < state.scanCooldownUntil
+            || !scanModeEndpoint
+        ) {
+            return;
+        }
+
+        state.scanTransitioning = true;
+        state.scanCooldownUntil = Date.now() + 750;
+        updateScanModeControls();
+        stopScannerRequests();
+
+        state.scanModeController?.abort();
+        const controller = new AbortController();
+        state.scanModeController = controller;
+
+        try {
+            const response = await fetch(scanModeEndpoint, {
+                method: 'POST',
+                cache: 'no-store',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': csrfToken,
+                },
+                body: JSON.stringify({ mode }),
+                signal: controller.signal,
+            });
+
+            const payload = await response.json();
+
+            if (!response.ok || !payload?.ok || !payload?.data) {
+                throw new Error(payload?.message || 'Unable to change scanner mode.');
+            }
+
+            adoptScanMode(payload.data);
+
+            if (mode === 'favorites' && state.scanMode === 'favorites' && elements.favoritesList) {
+                elements.favoritesList.scrollTop = 0;
+            }
+        } catch (error) {
+            if (error?.name !== 'AbortError') {
+                setControlStatus(error?.message || 'Unable to change scanner mode.', true);
+            }
+            await refreshScanMode();
+        } finally {
+            if (state.scanModeController === controller) {
+                state.scanModeController = null;
+            }
+
+            state.scanTransitioning = false;
+            updateScanModeControls();
+            schedule();
+            if (state.scanMode === 'favorites') {
+                scheduleFavoritesActivity(250);
+            } else {
+                window.setTimeout(refreshDownstream, 0);
+            }
+        }
+    }
+
+    for (const button of elements.scanModeButtons) {
+        button.addEventListener('click', () => {
+            changeScanMode(button.dataset.scanMode);
+        });
     }
 
     async function refreshLocal() {
@@ -4030,7 +4486,13 @@
     }
 
     async function refreshDownstream() {
-        if (!downstreamEndpoint || state.downstreamLoading || document.hidden) {
+        if (
+            state.scanMode !== 'downstream'
+            || state.scanTransitioning
+            || !downstreamEndpoint
+            || state.downstreamLoading
+            || document.hidden
+        ) {
             return;
         }
         state.downstreamLoading = true;
@@ -4045,9 +4507,23 @@
                 signal: controller.signal,
             });
             const payload = await response.json();
+
+            if (state.downstreamController !== controller) {
+                return;
+            }
+
+            if (payload?.scan_mode) {
+                adoptScanMode(payload.scan_mode);
+            }
+
+            if (state.scanMode !== 'downstream' || payload?.paused) {
+                return;
+            }
+
             if (!response.ok || !payload?.ok || !payload?.data) {
                 throw new Error(payload?.message || 'Downstream status request failed.');
             }
+
             renderDownstreamSnapshot(payload.data);
         } catch (error) {
             if (state.downstreamController !== controller) {
@@ -4154,7 +4630,11 @@
 
         updateCurrentTime();
         refreshLocal();
-        refreshDownstream();
+        if (state.scanMode === 'downstream') {
+            refreshDownstream();
+        } else {
+            scheduleFavoritesActivity(250);
+        }
         scheduleEchoLinkLookup();
         schedule();
     }
@@ -4173,8 +4653,13 @@
     function schedule() {
         window.clearInterval(state.localTimer);
         window.clearInterval(state.downstreamTimer);
+        state.downstreamTimer = 0;
+
         state.localTimer = window.setInterval(localPollTick, 1000);
-        state.downstreamTimer = window.setInterval(refreshDownstream, 2000);
+
+        if (state.scanMode === 'downstream') {
+            state.downstreamTimer = window.setInterval(refreshDownstream, 2000);
+        }
     }
 
     document.addEventListener('visibilitychange', () => {
@@ -4187,8 +4672,9 @@
     window.addEventListener('online', resumeLivePolling);
 
     startClock();
+    updateScanModeControls();
     refreshFavorites();
     refreshLocal();
-    window.setTimeout(refreshDownstream, 800);
+    initializeScanMode();
     schedule();
 })();
