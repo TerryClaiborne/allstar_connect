@@ -484,7 +484,7 @@ a2enconf "$APACHE_CONF_NAME" >/dev/null
 # Errors and all non-polling requests remain logged.
 if ! php <<'PHP'
 <?php
-$condition = '(%{REQUEST_STATUS} == 200) && (%{REQUEST_URI} =~ m#^/allstar_connect/api/(local|downstream|echolink)\.php$#)';
+$condition = '(%{REQUEST_STATUS} == 200) && (%{REQUEST_URI} =~ m#^/allstar_connect/api/(local|downstream|echolink|favorites_activity)\.php$#)';
 $legacyAllTune = '%{REQUEST_URI} =~ m#^/alltune2/(api/status\.php|public/alltune2_ribbon_bar\.php)#';
 $paths = glob('/etc/apache2/sites-enabled/*.conf') ?: [];
 $seen = [];
@@ -506,8 +506,19 @@ foreach ($paths as $path) {
         if (!str_contains($text, 'CustomLog') || !str_contains($text, '${APACHE_LOG_DIR}/access.log')) continue;
 
         $normalized = str_replace('\\', '', $text);
-        if (str_contains($normalized, '/allstar_connect/api/')
-            || str_contains($normalized, '(allstar_view|allstar_connect)/api/')) {
+        $hasAllStarPollingFilter = str_contains($normalized, '/allstar_connect/api/')
+            || str_contains($normalized, '(allstar_view|allstar_connect)/api/');
+
+        if ($hasAllStarPollingFilter) {
+            $upgraded = str_replace(
+                '(local|downstream|echolink)\.php$#',
+                '(local|downstream|echolink|favorites_activity)\.php$#',
+                $text
+            );
+            if ($upgraded !== $text) {
+                $line = $upgraded . $eol;
+                $changed = true;
+            }
             $handled = true;
             continue;
         }
