@@ -1365,7 +1365,7 @@
                 <span class="ac-dashboard-favorite-star">★</span>
                 <strong>${escapeHtml(item.target)}</strong>
                 <span>${escapeHtml(item.name || item.description || networkDisplay(item.network))}</span>
-                <small>${escapeHtml(activityDetected ? 'ACTIVITY DETECTED' : networkDisplay(item.network))}</small>
+                <small>${escapeHtml(activityDetected ? 'RECENT ACTIVITY' : networkDisplay(item.network))}</small>
             </button>`;
         }).join('');
     }

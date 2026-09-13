@@ -90,7 +90,11 @@ final class FavoritesScanner
             $state['consecutive_failures'] = 0;
             $state['last_failure_status'] = 0;
             $state['next_index'] = ($index + 1) % count($nodes);
-            $delay = $this->normalIntervalSeconds((int) ($state['request_count'] ?? 0));
+            $delay = $this->normalIntervalSeconds(
+                (int) ($state['request_count'] ?? 0),
+                count($nodes),
+                true
+            );
         } else {
             // Preserve the previous activity average when a Stats request fails
             // and control only the next request.
@@ -114,7 +118,11 @@ final class FavoritesScanner
             } elseif ($status === 404) {
                 // A missing node advances at the normal scan interval.
                 $state['next_index'] = ($index + 1) % count($nodes);
-                $delay = $this->normalIntervalSeconds((int) ($state['request_count'] ?? 0));
+                $delay = $this->normalIntervalSeconds(
+                    (int) ($state['request_count'] ?? 0),
+                    count($nodes),
+                    false
+                );
             } else {
                 // Advance after an ordinary Stats failure, then wait before
                 // continuing the list.
@@ -211,12 +219,40 @@ final class FavoritesScanner
         ];
     }
 
-    private function normalIntervalSeconds(int $requestCount): float
-    {
-        // Start at one request per second, then settle at two seconds after
-        // the first 20 requests. The settled rate reduces public Stats rate
-        // limiting while keeping Favorites scanning responsive.
-        return $requestCount > 20 ? 2.0 : 1.0;
+    private function normalIntervalSeconds(
+        int $requestCount,
+        int $nodeCount,
+        bool $protectSameNodeInterval
+    ): float {
+        // Populate Favorites quickly, then progressively reduce the request
+        // rate. After two complete passes, do not revisit the same Favorite
+        // more often than about every 30 seconds. The activity calculation
+        // compares Stats counter changes with elapsed time between samples,
+        // so this per-node interval is part of the detection algorithm.
+        if ($requestCount > 9000) {
+            $interval = 10.0;
+        } elseif ($requestCount > 4000) {
+            $interval = 6.0;
+        } elseif ($requestCount > 600) {
+            $interval = 4.0;
+        } elseif ($requestCount > 200) {
+            $interval = 3.0;
+        } elseif ($requestCount > (2 * $nodeCount) || $requestCount > 20) {
+            $interval = 2.0;
+        } else {
+            $interval = 1.0;
+        }
+
+        if (
+            $protectSameNodeInterval
+            && $nodeCount > 0
+            && ($interval * $nodeCount) < 30.0
+            && $requestCount >= (2 * $nodeCount)
+        ) {
+            $interval = 30.0 / $nodeCount;
+        }
+
+        return $interval;
     }
 
     private function favoriteScanSet(string $root): array

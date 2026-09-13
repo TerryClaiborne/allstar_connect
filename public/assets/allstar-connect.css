@@ -1501,6 +1501,10 @@ html[data-theme="light"] .ac-dashboard-favorite:focus-visible { background: #eef
     color: #ffffff;
 }
 
+.ac-dashboard-favorite.activity-detected small {
+    font-size: 7.5px;
+}
+
 html[data-theme="light"] .ac-dashboard-favorite.activity-detected,
 html[data-theme="light"] .ac-dashboard-favorite.activity-detected:hover,
 html[data-theme="light"] .ac-dashboard-favorite.activity-detected:focus-visible {
